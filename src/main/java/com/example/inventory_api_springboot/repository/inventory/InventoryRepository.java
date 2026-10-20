@@ -18,34 +18,17 @@ import java.util.UUID;
 
 @Repository
 public interface InventoryRepository extends JpaRepository<Inventory, UUID>, InventoryNativeRepository {
-//    @Transactional
-//    @Modifying
-//    @Query(
-//        value =
-//            "UPDATE Inventory " +
-//            "   SET quantity = quantity + :quantity, " +
-//            "       reservedQuantity = reservedQuantity + :reservedQuantity " +
-//            "WHERE productVariantId = :productVariantId " +
-//            "   AND reservedQuantity + :reservedQuantity >= 0" +
-//            "   AND quantity - (reservedQuantity + :reservedQuantity) + :quantity >= 0 "
-//    )
-//    int updateInventory(
-//        @Param("quantity") int quantity,
-//        @Param("reservedQuantity") int reservedQuantity,
-//        @Param("productVariantId") UUID productVariantId
-//    );
 
     @Transactional
     @Modifying
     @Query(
         value =
             "UPDATE inventory i " +
-            "   SET reserved_quantity = i.reserved_quantity - il reserved_quantity " +
+            "   SET reserved_quantity = i.reserved_quantity - il.reserved_quantity " +
             "FROM inventory_log il " +
             "WHERE i.product_variant_id = il.product_variant_id " +
             "   AND il.reference_id = :referenceId " +
-            "   AND type = 'ORDER_RESERVED' " +
-            "   AND i.quantity - il.quantity >= 0 " +
+            "   AND il.type = 'ORDER_RESERVED' " +
             "   AND i.reserved_quantity - il.reserved_quantity >= 0 " +
             "   AND NOT EXISTS (" +
             "       SELECT 1 " +
@@ -62,12 +45,12 @@ public interface InventoryRepository extends JpaRepository<Inventory, UUID>, Inv
     @Query(
         value =
             "UPDATE inventory i " +
-            "   SET i.quantity = i.quantity - il.reserved_quantity, " +
-            "       i.reserved_quantity = i.reserved_quantity - il.reserved_quantity " +
+            "   SET quantity = i.quantity - il.reserved_quantity, " +
+            "       reserved_quantity = i.reserved_quantity - il.reserved_quantity " +
             "FROM inventory_log il " +
             "WHERE i.product_variant_id = il.product_variant_id " +
             "   AND il.reference_id = :referenceId " +
-            "   AND type = 'ORDER_RESERVED' " +
+            "   AND il.type = 'ORDER_RESERVED' " +
             "   AND i.quantity - il.reserved_quantity >= 0 " +
             "   AND i.reserved_quantity - il.reserved_quantity >= 0 " +
             "   AND NOT EXISTS (" +
@@ -76,7 +59,7 @@ public interface InventoryRepository extends JpaRepository<Inventory, UUID>, Inv
             "       WHERE il2.reference_id = il.reference_id " +
             "           AND il2.type IN ('ORDER_CANCELLED', 'ORDER_SHIPPED') " +
             "   ) ",
-            nativeQuery = true
+        nativeQuery = true
     )
     int finishOrder(@Param("referenceId") UUID referenceId);
 
@@ -111,18 +94,4 @@ public interface InventoryRepository extends JpaRepository<Inventory, UUID>, Inv
         UUID productVariantId,
         boolean freeze
     );
-
-//    @Transactional
-//    @Query(
-//        "UPDATE inventory i " +
-//        "   SET quantity = s.actual_quantity, " +
-//        "       reserved_quantity = reserved_quantity - :shortage " +
-//        "FROM stock_opname_review s " +
-//        "WHERE i.product_variant_id = s.product_variant_id " +
-//        "   AND s.id = :stockOpnameReviewId "
-//    )
-//    void approveStockOpnameReview(
-//        UUID stockOpnameReviewId,
-//        int shortage
-//    );
 }

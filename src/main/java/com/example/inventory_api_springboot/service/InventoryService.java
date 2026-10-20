@@ -10,7 +10,6 @@ import com.example.inventory_api_springboot.entity.ProductVariant;
 import com.example.inventory_api_springboot.entity.User;
 import com.example.inventory_api_springboot.enums.InventoryLogTypeEnum;
 import com.example.inventory_api_springboot.enums.InventoryMutationResultEnum;
-import com.example.inventory_api_springboot.enums.UserBalanceLogTypeEnum;
 import com.example.inventory_api_springboot.repository.InventoryLogRepository;
 import com.example.inventory_api_springboot.repository.inventory.InventoryRepository;
 import jakarta.persistence.EntityManager;
@@ -20,7 +19,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
 import java.util.Optional;
@@ -57,18 +55,20 @@ public class InventoryService {
         switch (type) {
             case ORDER_CANCELLED : {
                 inventoryRepository.cancelOrder(orderId);
-//                userBalanceService.insertReversedLog(
-//                    orderId,
-//                    UserBalanceLogTypeEnum.ORDER_CANCELLED
-//                );
+                inventoryLogRepository.insertReversedLog(
+                    orderId,
+                    InventoryLogTypeEnum.ORDER_CANCELLED,
+                    userId
+                );
                 break;
             }
             case ORDER_SHIPPED: {
                 inventoryRepository.finishOrder(orderId);
-//                userBalanceService.insertReversedLog(
-//                    orderId,
-//                    UserBalanceLogTypeEnum.ORDER_SHIPPED
-//                );
+                inventoryLogRepository.insertReversedLog(
+                    orderId,
+                    InventoryLogTypeEnum.ORDER_SHIPPED,
+                    userId
+                );
                 break;
             }
         }
@@ -130,17 +130,6 @@ public class InventoryService {
             return InventoryMutationResultEnum.QUANTITY_EXCEEDS;
 
         if (inventory.getFreeze() != null && inventory.getFreeze() == true) {
-//            PendingInventoryProcess pendingInventoryProcess =
-//                PendingInventoryProcess.builder()
-//                    .productVariant(productService.getProductVariantReferenceById(id))
-//                    .type(type)
-//                    .quantity(quantity)
-//                    .reservedQuantity(reservedQuantity)
-//                    .user(userService.getReferenceById(userId))
-//                    .build();
-//
-//            pendingInventoryProcessRepository.save(pendingInventoryProcess);
-//            throw new ResponseStatusException(HttpStatus.CONFLICT, "Inventory is still in stock opname, try again later");
             return InventoryMutationResultEnum.FREEZED;
         } else {
             User userProxy = null;
@@ -163,7 +152,6 @@ public class InventoryService {
 
             if (referenceId != null) inventoryLog.setReferenceId(referenceId);
 
-//            inventoryRepository.updateInventory(quantity, reservedQuantity, id);
             inventoryRepository.save(inventory);
             inventoryLogRepository.save(inventoryLog);
         }
