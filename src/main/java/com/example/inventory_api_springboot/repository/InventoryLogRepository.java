@@ -25,21 +25,25 @@ public interface InventoryLogRepository extends JpaRepository<InventoryLog, Long
             "   reserved_quantity_after, " +
             "   reserved_quantity_change, " +
             "   type, " +
-            "   user_id, " +
-            "   reference_id " +
+            "   created_by, " +
+            "   reference_id, " +
+            "   created_at " +
             ") " +
             "SELECT il.product_variant_id, " +
-            "       il.quantity_after, " +
-            "       il.quantity_before, " +
-            "       0, " +
-            "       il.reserved_quantity_after, " +
-            "       i.reserved_quantity_before, " +
-            "       il.reserved_quantity_change * -1, " +
+            "       i.quantity + CASE WHEN CAST(:#{#type.name()} AS varchar) = 'ORDER_SHIPPED' THEN il.reserved_quantity_change ELSE 0 END, " +
+            "       i.quantity, " +
+            "       CASE WHEN CAST(:#{#type.name()} AS varchar) = 'ORDER_SHIPPED' THEN -il.reserved_quantity_change ELSE 0 END, " +
+            "       i.reserved_quantity + il.reserved_quantity_change, " +
+            "       i.reserved_quantity, " +
+            "       -il.reserved_quantity_change, " +
             "       CAST(:#{#type.name()} AS inventory_log_type_enum), " +
             "       :userId, " +
-            "       il.reference_id " +
+            "       il.reference_id, " +
+            "       NOW() " +
             "FROM inventory_log il " +
-            "WHERE il.reference_id = :referenceId " +
+            "JOIN order_detail od ON od.id = il.reference_id " +
+            "JOIN inventory i ON i.product_variant_id = il.product_variant_id " +
+            "WHERE od.order_id = :orderId " +
             "   AND il.type = 'ORDER_RESERVED' " +
             "   AND NOT EXISTS (" +
             "       SELECT 1 " +
@@ -50,7 +54,7 @@ public interface InventoryLogRepository extends JpaRepository<InventoryLog, Long
         nativeQuery = true
     )
     int insertReversedLog(
-        @Param("referenceId") UUID referenceId,
+        @Param("orderId") UUID orderId,
         @Param("type") InventoryLogTypeEnum type,
         @Param("userId") UUID userId
     );

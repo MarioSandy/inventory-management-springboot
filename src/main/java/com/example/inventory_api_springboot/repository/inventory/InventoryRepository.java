@@ -24,12 +24,13 @@ public interface InventoryRepository extends JpaRepository<Inventory, UUID>, Inv
     @Query(
         value =
             "UPDATE inventory i " +
-            "   SET reserved_quantity = i.reserved_quantity - il.reserved_quantity " +
+            "   SET reserved_quantity = i.reserved_quantity - il.reserved_quantity_change " +
             "FROM inventory_log il " +
+            "JOIN order_detail od ON od.id = il.reference_id " +
             "WHERE i.product_variant_id = il.product_variant_id " +
-            "   AND il.reference_id = :referenceId " +
+            "   AND od.order_id = :orderId " +
             "   AND il.type = 'ORDER_RESERVED' " +
-            "   AND i.reserved_quantity - il.reserved_quantity >= 0 " +
+            "   AND i.reserved_quantity - il.reserved_quantity_change >= 0 " +
             "   AND NOT EXISTS (" +
             "       SELECT 1 " +
             "       FROM inventory_log il2 " +
@@ -38,21 +39,22 @@ public interface InventoryRepository extends JpaRepository<Inventory, UUID>, Inv
             "   ) ",
         nativeQuery = true
     )
-    int cancelOrder(@Param("referenceId") UUID referenceId);
+    int cancelOrder(@Param("orderId") UUID orderId);
 
     @Transactional
     @Modifying
     @Query(
         value =
             "UPDATE inventory i " +
-            "   SET quantity = i.quantity - il.reserved_quantity, " +
-            "       reserved_quantity = i.reserved_quantity - il.reserved_quantity " +
+            "   SET quantity = i.quantity - il.reserved_quantity_change, " +
+            "       reserved_quantity = i.reserved_quantity - il.reserved_quantity_change " +
             "FROM inventory_log il " +
+            "JOIN order_detail od ON od.id = il.reference_id " +
             "WHERE i.product_variant_id = il.product_variant_id " +
-            "   AND il.reference_id = :referenceId " +
+            "   AND od.order_id = :orderId " +
             "   AND il.type = 'ORDER_RESERVED' " +
-            "   AND i.quantity - il.reserved_quantity >= 0 " +
-            "   AND i.reserved_quantity - il.reserved_quantity >= 0 " +
+            "   AND i.quantity - il.reserved_quantity_change >= 0 " +
+            "   AND i.reserved_quantity - il.reserved_quantity_change >= 0 " +
             "   AND NOT EXISTS (" +
             "       SELECT 1 " +
             "       FROM inventory_log il2 " +
@@ -61,7 +63,7 @@ public interface InventoryRepository extends JpaRepository<Inventory, UUID>, Inv
             "   ) ",
         nativeQuery = true
     )
-    int finishOrder(@Param("referenceId") UUID referenceId);
+    int finishOrder(@Param("orderId") UUID orderId);
 
     @Transactional
     @Modifying

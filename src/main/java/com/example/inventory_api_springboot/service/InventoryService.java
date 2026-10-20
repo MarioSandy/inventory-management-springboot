@@ -53,6 +53,15 @@ public class InventoryService {
         UUID userId
     ) {
         switch (type) {
+            case ORDER_CANCELLED : {
+                inventoryRepository.cancelOrder(orderId);
+                inventoryLogRepository.insertReversedLog(
+                    orderId,
+                    InventoryLogTypeEnum.ORDER_CANCELLED,
+                    userId
+                );
+                break;
+            }
             case ORDER_SHIPPED: {
                 inventoryRepository.finishOrder(orderId);
                 inventoryLogRepository.insertReversedLog(
