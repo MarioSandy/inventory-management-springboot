@@ -29,17 +29,16 @@ public interface InventoryLogRepository extends JpaRepository<InventoryLog, Long
             "   reference_id " +
             ") " +
             "SELECT il.product_variant_id, " +
-            "       i.quantity, " +
-            "       i.quantity, " +
+            "       il.quantity_after, " +
+            "       il.quantity_before, " +
             "       0, " +
-            "       i.reserved_quantity + il.reserved_quantity, " +
-            "       i.reserved_quantity, " +
-            "       il.reserved_quantity * -1, " +
+            "       il.reserved_quantity_after, " +
+            "       i.reserved_quantity_before, " +
+            "       il.reserved_quantity_change * -1, " +
             "       CAST(:#{#type.name()} AS inventory_log_type_enum), " +
             "       :userId, " +
             "       il.reference_id " +
             "FROM inventory_log il " +
-            "JOIN inventory i ON i.product_variant_id = il.product_variant_id " +
             "WHERE il.reference_id = :referenceId " +
             "   AND il.type = 'ORDER_RESERVED' " +
             "   AND NOT EXISTS (" +
