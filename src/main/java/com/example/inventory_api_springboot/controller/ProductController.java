@@ -29,6 +29,7 @@ public class ProductController {
     private final ProductService productService;
 
     @PostMapping("create")
+    @RequireRole(UserRoleEnum.WAREHOUSE_STAFF)
     public ResponseEntity createProduct(
         @Valid @RequestBody ProductCreateRequestDto productCreateRequestData
     ) {
