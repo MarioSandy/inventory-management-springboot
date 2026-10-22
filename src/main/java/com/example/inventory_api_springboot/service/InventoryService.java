@@ -123,6 +123,9 @@ public class InventoryService {
         if (inventory.getFreeze() != null && inventory.getFreeze() == true) {
             return InventoryMutationResultEnum.FREEZED;
         } else {
+            int quantityBefore = inventory.getQuantity();
+            int reservedQuantityBefore = inventory.getReservedQuantity();
+
             User userProxy = null;
             if (userId != null) userProxy = userService.getReferenceById(userId);
 
@@ -131,10 +134,10 @@ public class InventoryService {
 
             InventoryLog inventoryLog = InventoryLog.builder()
                 .productVariant(entityManager.getReference(ProductVariant.class, id))
-                .quantityBefore(inventory.getQuantity())
+                .quantityBefore(quantityBefore)
                 .quantityAfter(quantityAfter)
                 .quantityChange(quantity)
-                .reservedQuantityBefore(inventory.getReservedQuantity())
+                .reservedQuantityBefore(reservedQuantityBefore)
                 .reservedQuantityAfter(reservedQuantityAfter)
                 .reservedQuantityChange(reservedQuantity)
                 .type(type)
