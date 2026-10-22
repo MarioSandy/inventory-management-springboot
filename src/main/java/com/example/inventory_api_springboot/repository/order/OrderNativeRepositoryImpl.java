@@ -148,12 +148,35 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
         );
     }
 
+    /**
+     * Mengklaim order PENDING tertua menjadi PROCESSING dan mengembalikan id yang benar-benar
+     * ter-klaim.
+     *
+     * <p>Klaim dilakukan dalam SATU statement (CTE + UPDATE ... RETURNING) supaya lock dan
+     * perubahan status berada pada statement yang sama, sehingga id yang dikembalikan dijamin
+     * sudah berstatus PROCESSING (tidak ada outbox event yang menunjuk ke order yang masih
+     * PENDING).
+     *
+     * <p>{@code FOR UPDATE} sengaja dipakai TANPA {@code SKIP LOCKED}: worker lain HARUS menunggu
+     * order paling awal selesai diklaim, bukan melompatinya. Dengan {@code SKIP LOCKED}, order
+     * tertua yang sedang dipegang worker lain akan dilewati dan order yang lebih baru menyalip,
+     * sehingga reservasi inventory tidak fair. Konsekuensinya klaim menjadi serial; setelah
+     * worker pertama commit, baris itu sudah tidak PENDING sehingga otomatis gugur dari kandidat.
+     *
+     * <p>{@code o.id ASC} dipakai sebagai tiebreaker agar urutan scan deterministik saat
+     * {@code created_at} kembar, sehingga dua worker yang saling menunggu memindai baris dalam
+     * urutan yang sama dan terhindar dari deadlock.
+     *
+     * <p>Propagation MANDATORY: {@code FOR UPDATE} hanya mengikat selama transaksi caller aktif,
+     * dan {@code UPDATE status} + {@code INSERT outbox} harus commit/rollback bersama. Tanpa
+     * transaksi, order bisa tersangkut di PROCESSING tanpa outbox event.
+     */
     @Transactional(propagation = Propagation.MANDATORY)
     public List<UUID> getReadyPendingOrderIdsForProcess() {
+        // UPDATE ... RETURNING menghasilkan result set, sehingga wajib dieksekusi dengan
+        // getResultList(). executeUpdate() tidak bisa dipakai di sini.
         Query query = entityManager.createNativeQuery(
-            "UPDATE \"order\" " +
-            "   SET status = 'PROCESSING' " +
-            "WHERE id IN ( " +
+            "WITH locked AS ( " +
             "   SELECT o.id " +
             "   FROM \"order\" o " +
             "   WHERE o.status = 'PENDING' " +
@@ -165,12 +188,16 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
             "           WHERE o.id = od.order_id " +
             "               AND i.\"freeze\" = TRUE " +
             "       ) " +
-            "   ORDER BY o.created_at ASC " +
+            "   ORDER BY o.created_at ASC, o.id ASC " +
             "   LIMIT 500 " +
-            "   FOR UPDATE SKIP LOCKED " +
+            "   FOR UPDATE " +
             ") " +
-            "   AND status = 'PENDING' " +
-            "RETURNING id "
+            "UPDATE \"order\" o " +
+            "   SET status = 'PROCESSING' " +
+            "FROM locked l " +
+            "WHERE o.id = l.id " +
+            "   AND o.status = 'PENDING' " +
+            "RETURNING o.id "
         );
 
         List<?> returnedRows = query.getResultList();
