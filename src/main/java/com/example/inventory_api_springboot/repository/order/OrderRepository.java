@@ -2,7 +2,6 @@ package com.example.inventory_api_springboot.repository.order;
 
 import com.example.inventory_api_springboot.entity.Order;
 import com.example.inventory_api_springboot.enums.OrderStatusEnum;
-import com.example.inventory_api_springboot.repository.order.OrderNativeRepository;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.QueryHint;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -17,8 +16,11 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface OrderRepository extends JpaRepository<Order, UUID>, OrderNativeRepository {
+//    @Lock(LockModeType.PESSIMISTIC_WRITE)
+//    Optional<Order> findById(UUID id);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    Optional<Order> findById(UUID id);
+    Optional<Order> findWithLockById(UUID id);
 
 //    @Modifying
 //    @Query(
