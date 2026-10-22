@@ -201,7 +201,7 @@ public class OrderService {
 
             int quantityAfter = inventory.getQuantity() - orderDetail.getQuantity();
             int reservedQuantityAfter = inventory.getReservedQuantity() - orderDetail.getQuantity();
-            int quantityChange = inventory.getQuantity() * -1;
+            int quantityChange = -orderDetail.getQuantity();
 
             InventoryLog inventoryLog =
                 InventoryLog.builder()
