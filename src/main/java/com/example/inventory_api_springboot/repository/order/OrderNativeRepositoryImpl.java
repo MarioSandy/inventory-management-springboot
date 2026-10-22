@@ -112,7 +112,7 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
             "       ) " +
             "   ORDER BY o.created_at ASC " +
             "   LIMIT 500 " +
-            "   FOR UPDATE SKIP LOCKED "+
+            "   FOR UPDATE "+
             ") " +
             "SELECT  l.id, " +
             "        l.user_id, " +
@@ -148,33 +148,8 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
         );
     }
 
-    /**
-     * Mengklaim order PENDING tertua menjadi PROCESSING dan mengembalikan id yang benar-benar
-     * ter-klaim.
-     *
-     * <p>Klaim dilakukan dalam SATU statement (CTE + UPDATE ... RETURNING) supaya lock dan
-     * perubahan status berada pada statement yang sama, sehingga id yang dikembalikan dijamin
-     * sudah berstatus PROCESSING (tidak ada outbox event yang menunjuk ke order yang masih
-     * PENDING).
-     *
-     * <p>{@code FOR UPDATE} sengaja dipakai TANPA {@code SKIP LOCKED}: worker lain HARUS menunggu
-     * order paling awal selesai diklaim, bukan melompatinya. Dengan {@code SKIP LOCKED}, order
-     * tertua yang sedang dipegang worker lain akan dilewati dan order yang lebih baru menyalip,
-     * sehingga reservasi inventory tidak fair. Konsekuensinya klaim menjadi serial; setelah
-     * worker pertama commit, baris itu sudah tidak PENDING sehingga otomatis gugur dari kandidat.
-     *
-     * <p>{@code o.id ASC} dipakai sebagai tiebreaker agar urutan scan deterministik saat
-     * {@code created_at} kembar, sehingga dua worker yang saling menunggu memindai baris dalam
-     * urutan yang sama dan terhindar dari deadlock.
-     *
-     * <p>Propagation MANDATORY: {@code FOR UPDATE} hanya mengikat selama transaksi caller aktif,
-     * dan {@code UPDATE status} + {@code INSERT outbox} harus commit/rollback bersama. Tanpa
-     * transaksi, order bisa tersangkut di PROCESSING tanpa outbox event.
-     */
     @Transactional(propagation = Propagation.MANDATORY)
     public List<UUID> getReadyPendingOrderIdsForProcess() {
-        // UPDATE ... RETURNING menghasilkan result set, sehingga wajib dieksekusi dengan
-        // getResultList(). executeUpdate() tidak bisa dipakai di sini.
         Query query = entityManager.createNativeQuery(
             "WITH locked AS ( " +
             "   SELECT o.id " +
@@ -197,17 +172,11 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
             "FROM locked l " +
             "WHERE o.id = l.id " +
             "   AND o.status = 'PENDING' " +
-            "RETURNING o.id "
+            "RETURNING o.id ",
+            UUID.class
         );
 
-        List<?> returnedRows = query.getResultList();
-        List<UUID> claimedOrderIds = new ArrayList<>(returnedRows.size());
-
-        for (Object returnedRow : returnedRows) {
-            claimedOrderIds.add(toUuid(returnedRow));
-        }
-
-        return claimedOrderIds;
+        return query.getResultList();
     }
 
     private UUID toUuid(Object returnedRow) {
