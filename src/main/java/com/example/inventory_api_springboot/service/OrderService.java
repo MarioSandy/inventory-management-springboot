@@ -32,23 +32,20 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class OrderService {
-    private static final String RESERVATION_APPLY_FAILED_MESSAGE =
-        "Unexpected inventory mutation result during reservation apply: %s for product variant %s of order %s. "
-        + "Throwing so the transaction rolls back instead of committing a partial reservation leak.";
+    private static final String RELEASE_RESERVATION_FAILED_MESSAGE =
+        "Failed to release reservation for product variant %s (result: %s) while cancelling order %s. "
+        + "Throwing so the transaction rolls back instead of committing a partial release that would "
+        + "silently leak inventory.";
 
     private final OrderRepository orderRepository;
     private final InventoryService inventoryService;
@@ -278,24 +275,25 @@ public class OrderService {
      *
      * <p>Isu CRIT-08: reservasi yang sudah sukses pada detail 1..N-1 tetap ter-commit ketika
      * detail ke-N gagal, karena return normal dari {@code @Transactional} bukan rollback.
-     * Perbaikan di sini memakai pola <b>validate-first</b>: seluruh detail divalidasi lebih
-     * dulu (read-only, di bawah lock {@code FOR UPDATE}), dan mutasi baru diterapkan setelah
-     * semua detail lolos. Dengan begitu, jalur gagal benar-benar tidak meninggalkan jejak
-     * (tidak ada perubahan inventory, tidak ada {@code inventory_log}).
+     * Perbaikan di sini: setiap detail yang sukses direserve dicatat ke
+     * {@code listReservedDetail}. Ketika ada kegagalan, seluruh reservasi di
+     * {@code listReservedDetail} dilepas kembali via {@link #releaseReservations(List, UUID)}
+     * sebelum method return.
      *
      * <ul>
-     *   <li><b>Fase 1 (validate)</b>: lock semua inventory target yang tidak frozen,
-     *       lalu validasi agregat per-variant ({@code reserved < 0}, {@code available < 0}).
-     *       Tidak ada mutasi di fase ini.</li>
-     *   <li><b>FREEZED</b>: order kembali ke {@code PENDING}. Scheduler
-     *       ({@code checkReadyOrderAndPushToOutbox}) akan me-re-enqueue setelah unfreeze,
-     *       jadi tidak memakai exception (outbox hanya retry 3x).</li>
-     *   <li><b>QUANTITY_EXCEEDS / RESERVED_QUANTITY_EXCEEDS</b>: refund penuh
-     *       {@code reserved_balance} order (bukan parsial, karena order di-CANCELLED
-     *       seluruhnya), lalu transisi ke {@code CANCELLED}. Tidak ada mutasi inventory.</li>
-     *   <li><b>Fase 2 (apply)</b>: semua detail sudah tervalidasi, panggil
-     *       {@code InventoryService.mutation(ORDER_RESERVED)} per detail. Kegagalan tak
-     *       terduga di fase ini melempar exception agar transaksi rollback total.</li>
+     *   <li><b>Detail sukses</b>: {@code InventoryService.mutation(ORDER_RESERVED)} lalu
+     *       detail disimpan ke {@code listReservedDetail}.</li>
+     *   <li><b>Detail gagal</b>: loop berhenti, {@code failureResult} diisi.</li>
+     *   <li><b>FREEZED</b>: release list → transisi {@code PROCESSING -> PENDING}.
+     *       Scheduler ({@code getReadyPendingOrderIdsForProcess}) akan re-enqueue setelah
+     *       inventory tidak frozen. Tidak memakai exception karena outbox hanya retry 3x
+     *       (lihat {@code OutboxRepository.getAndMarkedPendingOrderOutbox}).</li>
+     *   <li><b>QUANTITY_EXCEEDS / RESERVED_QUANTITY_EXCEEDS</b>: release list → refund
+     *       penuh {@code reserved_balance} order (bukan parsial, karena order di-CANCELLED
+     *       seluruhnya) → transisi {@code PROCESSING -> CANCELLED}.</li>
+     *   <li><b>Release gagal</b>: {@link #releaseReservations(List, UUID)} melempar
+     *       {@link IllegalStateException} agar transaksi rollback total — mencegah state
+     *       "sebagian dirilis, sebagian masih ter-reserve".</li>
      * </ul>
      */
     @Transactional
@@ -306,75 +304,53 @@ public class OrderService {
 
         List<OrderReadyProcessDetailDto> listOrderDetail = orderReadyProcess.getListDetail();
 
-        if (listOrderDetail.isEmpty()) {
-            orderRepository.updateOrderStatus(
-                orderReadyProcess.getId(),
-                OrderStatusEnum.RESERVED
-            );
-            return;
-        }
+        // Refund yang benar adalah total order penuh (semua detail), bukan prefix sampai
+        // detail yang gagal. Saldo user di-reserve penuh saat create(), jadi saat order
+        // dibatalkan seluruh reservasi balance harus dilepas.
+        BigDecimal orderTotal = listOrderDetail.stream()
+            .map(OrderReadyProcessDetailDto::subTotal)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        Set<UUID> variantIds = listOrderDetail.stream()
-            .map(OrderReadyProcessDetailDto::productVariantId)
-            .collect(Collectors.toCollection(LinkedHashSet::new));
-
-        // Fase 1: lock semua inventory target yang tidak frozen, lalu validasi.
-        // Tidak ada mutasi di sini, sehingga jalur gagal di bawah tidak meninggalkan
-        // perubahan apa pun.
-        List<Inventory> lockedInventories =
-            inventoryService.findAllForUpdateByProductVariantIdInAndFreeze(variantIds, false);
-        Map<UUID, Inventory> inventoryByVariantId = lockedInventories.stream()
-            .collect(Collectors.toMap(Inventory::getProductVariantId, Function.identity()));
-
+        List<OrderReadyProcessDetailDto> listReservedDetail = new ArrayList<>();
         InventoryMutationResultEnum failureResult = null;
-        Map<UUID, Integer> simulatedReservedDelta = new HashMap<>();
 
-        for (OrderReadyProcessDetailDto detail : listOrderDetail) {
-            Inventory inventory = inventoryByVariantId.get(detail.productVariantId());
+        for (OrderReadyProcessDetailDto orderReadyProcessDetail : listOrderDetail) {
+            // Reserve Stock
+            InventoryMutationResultEnum mutationResult =
+                inventoryService.mutation(
+                    orderReadyProcessDetail.productVariantId(),
+                    0,
+                    orderReadyProcessDetail.quantity(),
+                    InventoryLogTypeEnum.ORDER_RESERVED,
+                    null,
+                    orderReadyProcessDetail.orderDetailId()
+                );
 
-            if (inventory == null) {
-                // Tidak masuk hasil lock: inventory frozen (difilter query) atau tidak ada.
-                // Diperlakukan sebagai TRANSIENT agar scheduler retry setelah unfreeze.
-                failureResult = InventoryMutationResultEnum.FREEZED;
-                break;
+            if (mutationResult == InventoryMutationResultEnum.SUCCESS) {
+                listReservedDetail.add(orderReadyProcessDetail);
+                continue;
             }
 
-            int currentReserved = inventory.getReservedQuantity()
-                + simulatedReservedDelta.getOrDefault(detail.productVariantId(), 0);
-            int reservedAfter = currentReserved + detail.quantity();
-            int availableAfter = inventory.getQuantity() - reservedAfter;
-
-            if (reservedAfter < 0) {
-                failureResult = InventoryMutationResultEnum.RESERVED_QUANTITY_EXCEEDS;
-                break;
-            }
-            if (availableAfter < 0) {
-                failureResult = InventoryMutationResultEnum.QUANTITY_EXCEEDS;
-                break;
-            }
-
-            simulatedReservedDelta.merge(
-                detail.productVariantId(),
-                detail.quantity(),
-                Integer::sum
-            );
+            failureResult = mutationResult;
+            break;
         }
 
         if (failureResult != null) {
-            // Belum ada mutasi apa pun di fase 1. Tangani kegagalan tanpa meninggalkan
-            // perubahan inventory maupun inventory_log.
+            // Release seluruh reservasi yang sudah sukses sebelum detail yang gagal.
+            // Release yang gagal melempar exception sehingga transaksi rollback total
+            // (tidak ada reservasi yatim yang tertinggal).
+            releaseReservations(listReservedDetail, orderReadyProcess.getId());
+
             if (failureResult == InventoryMutationResultEnum.FREEZED) {
-                // Transient: scheduler akan re-enqueue setelah inventory tidak frozen.
+                // Kembalikan ke PENDING: scheduler akan memproses ulang setelah unfreeze.
+                // Semua reservasi yang sempat sukses sudah di-release di atas, jadi retry
+                // berikutnya tidak menggandakan reserved_quantity.
                 orderRepository.updateOrderStatus(
                     orderReadyProcess.getId(),
                     OrderStatusEnum.PENDING
                 );
             } else {
-                // Shortage permanen: refund penuh reserved_balance lalu CANCELLED.
-                BigDecimal orderTotal = listOrderDetail.stream()
-                    .map(OrderReadyProcessDetailDto::subTotal)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-
+                // Shortage: refund penuh + CANCELLED.
                 userBalanceService.refund(
                     new UserBalanceMutationDto(
                         BigDecimal.ZERO,
@@ -394,35 +370,47 @@ public class OrderService {
             return;
         }
 
-        // Fase 2: semua detail sudah tervalidasi. Terapkan reservasi. Kegagalan tak
-        // terduga (mis. freeze terjadi setelah validasi) melempar exception sehingga
-        // transaksi rollback total (tidak ada reservasi yatim yang tertinggal).
-        for (OrderReadyProcessDetailDto detail : listOrderDetail) {
-            InventoryMutationResultEnum mutationResult =
-                inventoryService.mutation(
-                    detail.productVariantId(),
-                    0,
-                    detail.quantity(),
-                    InventoryLogTypeEnum.ORDER_RESERVED,
-                    null,
-                    detail.orderDetailId()
-                );
-
-            if (mutationResult != InventoryMutationResultEnum.SUCCESS) {
-                throw new IllegalStateException(
-                    String.format(
-                        RESERVATION_APPLY_FAILED_MESSAGE,
-                        mutationResult,
-                        detail.productVariantId(),
-                        orderReadyProcess.getId()
-                    )
-                );
-            }
-        }
-
         orderRepository.updateOrderStatus(
             orderReadyProcess.getId(),
             OrderStatusEnum.RESERVED
         );
+    }
+
+    /**
+     * Release reservasi inventory untuk setiap detail yang sukses sebelum kegagalan,
+     * memakai {@link InventoryLogTypeEnum#RESERVATION_RELEASE} (arah negatif:
+     * {@code reservedQuantity < 0}).
+     *
+     * <p>Urutan release mengikuti urutan reserve, sehingga lock pesimis yang sudah
+     * dipegang pada fase reserve tetap dipegang (tidak ada akuisisi lock baru terhadap
+     * {@code Inventory} yang sama → tidak ada risiko deadlock antar detail dalam
+     * transaksi yang sama).
+     */
+    private void releaseReservations(
+        List<OrderReadyProcessDetailDto> listReservedDetail,
+        UUID orderId
+    ) {
+        for (OrderReadyProcessDetailDto reservedDetail : listReservedDetail) {
+            InventoryMutationResultEnum releaseResult =
+                inventoryService.mutation(
+                    reservedDetail.productVariantId(),
+                    0,
+                    -reservedDetail.quantity(),
+                    InventoryLogTypeEnum.RESERVATION_RELEASE,
+                    null,
+                    reservedDetail.orderDetailId()
+                );
+
+            if (releaseResult != InventoryMutationResultEnum.SUCCESS) {
+                throw new IllegalStateException(
+                    String.format(
+                        RELEASE_RESERVATION_FAILED_MESSAGE,
+                        reservedDetail.productVariantId(),
+                        releaseResult,
+                        orderId
+                    )
+                );
+            }
+        }
     }
 }
