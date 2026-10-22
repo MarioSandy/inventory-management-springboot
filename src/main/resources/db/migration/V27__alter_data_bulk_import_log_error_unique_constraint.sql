@@ -1,0 +1,2 @@
+ALTER TABLE data_bulk_import_log_error DROP CONSTRAINT data_bulk_import_log_error_row_number_key;
+ALTER TABLE data_bulk_import_log_error ADD CONSTRAINT data_bulk_import_log_error_unique UNIQUE (data_bulk_import_log_id, row_number);

@@ -1,0 +1,45 @@
+spring:
+  application:
+    name: inventory-api-springboot
+  datasource:
+    url: jdbc:postgresql://localhost:5432/inventory-api-springboot
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+  jwt:
+    secret: 0a339203ae97b2171182163c0878f9169a73662a0bab9bbfecb0bf93fda70a01
+  crypto:
+    argon2:
+      memory-kb: 65536
+      iterations: 3
+      parallelism: 4
+      salt-length: 16
+      hash-length: 32
+  flyway:
+    repair-on-migrate=true:
+  aws:
+    access-key-id: 662ed6cca347f29c7c039ed9356190f2
+    secret-key-id: 503852958f0cacccebe2d8d0214e510718c74c7961a9be0ef7f439866e5b3421
+    region: ap-southeast-1
+    endpoint: https://njvxpodwyihtprvjxezz.storage.supabase.co/storage/v1/s3
+    bucket-name: inventory_management
+  # Enable auto-retries for RabbitMQ listeners
+  rabbitmq:
+      listener:
+        simple:
+          retry:
+            enabled: true
+            # Initial interval between retries (e.g., 2000ms = 2 seconds)
+            initial-interval: 2000ms
+            # Multiplier for the backoff interval (2.0 means: 2s, then 4s, then 8s)
+            multiplier: 2.0
+            # Maximum interval between retries
+            max-interval: 10000ms
+            # Choose what happens when retry attempts are exhausted:
+            # true = put it back in the main queue (causes infinite loops if the error is permanent!)
+            # false = reject it (sends it directly to the DLQ if configured)
+            default-requeue-rejected: false
+  file-chunk:
+    max-chunk-size:
+      product-batch-create: 500
+      inventory-stock-opname: 100

@@ -1,0 +1,2 @@
+ALTER TABLE product_variant
+    ALTER COLUMN sku TYPE VARCHAR(21)

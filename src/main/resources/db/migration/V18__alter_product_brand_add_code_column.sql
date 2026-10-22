@@ -1,0 +1,2 @@
+ALTER TABLE product_brand
+    ADD COLUMN code CHAR(4) NOT NULL UNIQUE;

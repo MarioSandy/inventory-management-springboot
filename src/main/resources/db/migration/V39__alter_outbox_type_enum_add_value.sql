@@ -1,0 +1,1 @@
+ALTER TYPE outbox_event_type_enum ADD VALUE 'ORDER_PROCESSING';

@@ -1,0 +1,65 @@
+package com.example.inventory_api_springboot.entity;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.MapsId;
+import jakarta.persistence.OneToOne;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Entity
+@EntityListeners(AuditingEntityListener.class)
+@Table(name = "user_balance")
+@Data
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
+public class UserBalance {
+    @Id
+    @Column(name = "user_id")
+    private UUID userId;
+
+    @Column(nullable = false)
+    private BigDecimal balance;
+
+    @Column(name = "reserved_balance", nullable = false)
+    private BigDecimal reservedBalance;
+
+    @LastModifiedDate
+    @Column(name = "updated_at", insertable = false)
+    private LocalDateTime updatedAt;
+
+    @OneToOne
+    @MapsId // 2. Tells Hibernate to copy the 'id' from the linked User entity
+    @JoinColumn(name = "user_id") // 3. The column in this table is named 'id' and acts as the FK
+    private User user;
+
+    public void mutateBalances(BigDecimal changeBalance, BigDecimal changeReservedBalance) {
+        BigDecimal newBalance = this.balance.add(changeBalance);
+        BigDecimal newReservedBalance = this.reservedBalance.add(changeReservedBalance);
+
+        // The business rule explicitly stated:
+        BigDecimal availableBalance = newBalance.subtract(newReservedBalance);
+        if (availableBalance.signum() < 0) {
+            throw new IllegalArgumentException(
+                String.format("Insufficient balance! Available balance cannot drop below zero. (Calculated: " + availableBalance.toPlainString() + ")")
+            );
+        }
+
+        // Apply if valid
+        this.balance = newBalance;
+        this.reservedBalance = newReservedBalance;
+    }
+}

@@ -1,0 +1,3 @@
+ALTER TABLE user_balance_log
+    DROP CONSTRAINT user_balance_log_pkey,
+    ADD COLUMN id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY;
