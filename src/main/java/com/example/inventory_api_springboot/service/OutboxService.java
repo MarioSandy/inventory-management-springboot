@@ -17,6 +17,10 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class OutboxService {
+    private static final String OUTBOX_STATUS_UNCHANGED_MESSAGE =
+        "Outbox status update affected %d row(s) instead of 1 for outbox id %s. " +
+        "The outbox row likely does not exist or its status/lock guard is not satisfied.";
+
     private final OutboxRepository outboxRepository;
     private final UserService userService;
 
@@ -47,15 +51,29 @@ public class OutboxService {
         return outboxRepository.getAndMarkedPendingOutbox();
     }
 
+    @Transactional
     public void updateStatusFailedDispatch(UUID outboxId, String errorMessage) {
-        outboxRepository.updateStatusFailedDispatch(outboxId, errorMessage);
+        int updatedRows = outboxRepository.updateStatusFailedDispatch(outboxId, errorMessage);
+        assertSingleRowUpdated(updatedRows, outboxId);
     }
 
+    @Transactional
     public void updateStatusForRetryDispatch(UUID outboxId, String errorMessage) {
-        outboxRepository.updateStatusForRetryDispatch(outboxId, errorMessage);
+        int updatedRows = outboxRepository.updateStatusForRetryDispatch(outboxId, errorMessage);
+        assertSingleRowUpdated(updatedRows, outboxId);
     }
 
+    @Transactional
     public void updateStatusSuccessDispatch(UUID outboxId) {
-        outboxRepository.updateStatusSuccessDispatch(outboxId);
+        int updatedRows = outboxRepository.updateStatusSuccessDispatch(outboxId);
+        assertSingleRowUpdated(updatedRows, outboxId);
+    }
+
+    private void assertSingleRowUpdated(int updatedRows, UUID outboxId) {
+        if (updatedRows != 1) {
+            throw new IllegalStateException(
+                String.format(OUTBOX_STATUS_UNCHANGED_MESSAGE, updatedRows, outboxId)
+            );
+        }
     }
 }
