@@ -315,9 +315,10 @@ public class OrderService {
             releaseReservations(listReservedDetail, orderReadyProcess.getId());
 
             if (failureResult == InventoryMutationResultEnum.FREEZED) {
-                orderRepository.updateOrderStatus(
-                    orderReadyProcess.getId(),
-                    OrderStatusEnum.PENDING
+                transitionOrderStatus(
+                        orderReadyProcess.getId(),
+                        currentStatus,
+                        OrderStatusEnum.PENDING
                 );
             } else {
                 userBalanceService.refund(
