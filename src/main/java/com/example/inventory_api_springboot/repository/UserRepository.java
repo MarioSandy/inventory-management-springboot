@@ -22,12 +22,12 @@ public interface UserRepository extends JpaRepository<User, UUID> {
                 "   SELECT 1 " +
                 "   FROM User u " +
                 "   WHERE u.id = :id " +
-                "       AND u.role IN :role " +
+                "       AND u.role = :role " +
                 ") "
     )
     boolean existsByUserIdAndRolesNative(
-            @Param("id") UUID userId,
-            @Param("role") UserRoleEnum role
+        @Param("id") UUID userId,
+        @Param("role") UserRoleEnum role
     );
 
     @Transactional
