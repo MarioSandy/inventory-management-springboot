@@ -151,49 +151,53 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
     @Transactional(propagation = Propagation.MANDATORY)
     public List<UUID> getReadyPendingOrderIdsForProcess() {
         Query query = entityManager.createNativeQuery(
-            "SELECT id " +
-            "FROM \"order\" o " +
-            "WHERE o.status = 'PENDING' " +
-            "   AND NOT EXISTS ( " +
-            "       SELECT 1 " +
-            "       FROM inventory i " +
-            "       JOIN order_detail od " +
-            "           ON i.product_variant_id = od.product_variant_id " +
-            "       WHERE o.id = od.order_id " +
-            "           AND \"freeze\" = TRUE " +
-            ") " +
-            "ORDER BY o.created_at ASC " +
-            "LIMIT 500 " +
-            "FOR UPDATE SKIP LOCKED",
-            UUID.class
-        );
-
-        List<UUID> listOrderIds = query.getResultList();
-
-        if (listOrderIds.isEmpty())
-            return listOrderIds;
-
-        query = entityManager.createNativeQuery(
             "UPDATE \"order\" " +
             "   SET status = 'PROCESSING' " +
-            "WHERE id IN :orderIds " +
-            "   AND status = 'PENDING' "
+            "WHERE id IN ( " +
+            "   SELECT o.id " +
+            "   FROM \"order\" o " +
+            "   WHERE o.status = 'PENDING' " +
+            "       AND NOT EXISTS ( " +
+            "           SELECT 1 " +
+            "           FROM inventory i " +
+            "           JOIN order_detail od " +
+            "               ON i.product_variant_id = od.product_variant_id " +
+            "           WHERE o.id = od.order_id " +
+            "               AND i.\"freeze\" = TRUE " +
+            "       ) " +
+            "   ORDER BY o.created_at ASC " +
+            "   LIMIT 500 " +
+            "   FOR UPDATE SKIP LOCKED " +
+            ") " +
+            "   AND status = 'PENDING' " +
+            "RETURNING id "
         );
 
-        query.setParameter("orderIds", listOrderIds);
-        int updatedRows = query.executeUpdate();
+        List<?> returnedRows = query.getResultList();
+        List<UUID> claimedOrderIds = new ArrayList<>(returnedRows.size());
 
-        if (updatedRows != listOrderIds.size()) {
-            throw new IllegalStateException(
-                String.format(
-                    "Order claim affected %d row(s) but %d order id(s) were locked. " +
-                    "The status guard (status = 'PENDING') was likely not satisfied for some ids.",
-                    updatedRows,
-                    listOrderIds.size()
-                )
-            );
+        for (Object returnedRow : returnedRows) {
+            claimedOrderIds.add(toUuid(returnedRow));
         }
 
-        return listOrderIds;
+        return claimedOrderIds;
+    }
+
+    private UUID toUuid(Object returnedRow) {
+        if (returnedRow instanceof UUID uuid) {
+            return uuid;
+        }
+
+        if (returnedRow instanceof Object[] columns && columns.length > 0) {
+            Object firstColumn = columns[0];
+
+            if (firstColumn instanceof UUID uuid) {
+                return uuid;
+            }
+
+            return UUID.fromString(firstColumn.toString());
+        }
+
+        return UUID.fromString(returnedRow.toString());
     }
 }
