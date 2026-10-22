@@ -153,7 +153,12 @@ public class OrderService {
         UUID id,
         UUID userId
     ) {
-        Order order = orderRepository.findWithDetailsByIdAndStatus(id, OrderStatusEnum.RESERVED)
+        // Lock parent lebih dulu (query tanpa join -> aman untuk FOR UPDATE), lalu biarkan
+        // listOrderDetails dimuat lazy di dalam transaksi yang sama. Memakai
+        // findWithDetailsByIdAndStatus (EntityGraph -> LEFT OUTER JOIN) sekaligus dengan lock
+        // akan gagal di PostgreSQL: "FOR UPDATE cannot be applied to the nullable side of an
+        // outer join".
+        Order order = orderRepository.findByIdAndStatus(id, OrderStatusEnum.RESERVED)
             .orElseThrow(() -> new EntityNotFoundException("Order not found"));
 
         order.setStatus(OrderStatusEnum.COMPLETED);

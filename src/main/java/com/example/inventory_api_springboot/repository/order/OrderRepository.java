@@ -16,27 +16,27 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface OrderRepository extends JpaRepository<Order, UUID>, OrderNativeRepository {
-//    @Lock(LockModeType.PESSIMISTIC_WRITE)
-//    Optional<Order> findById(UUID id);
 
+    /**
+     * Mengambil order sekaligus mengunci barisnya (SELECT ... FOR UPDATE).
+     *
+     * <p>Khusus untuk alur MUTASI. Jangan dipakai untuk endpoint baca/display, karena lock
+     * menambah kontensi, latensi, dan risiko deadlock.
+     *
+     * <p>Lock hanya mengikat bila method ini dipanggil di dalam transaksi aktif. Bila dipanggil
+     * di luar transaksi, perilakunya bergantung driver (bisa error, bisa diabaikan).
+     *
+     * <p>Catatan: saat ini belum ada pemanggil. Method ini disediakan sebagai jalur eksplisit
+     * untuk kebutuhan mutasi, menggantikan lock yang sebelumnya dipasang pada {@code findById}.
+     */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints({
+        @QueryHint(
+            name = "jakarta.persistence.lock.timeout",
+            value = "-2"
+        )
+    })
     Optional<Order> findWithLockById(UUID id);
-
-//    @Modifying
-//    @Query(
-//        "UPDATE Order " +
-//        "   SET status = 'CANCELLED' " +
-//        "WHERE id = :id "
-//    )
-//    void updateOrderStatusToCancelled(@Param("id") UUID id);
-//
-//    @Modifying
-//    @Query(
-//        "UPDATE Order " +
-//        "   SET status = 'RESERVED' " +
-//        "WHERE id = :id "
-//    )
-//    void updateOrderStatusToReserved(@Param("id") UUID id);
 
     @Modifying
     @Query(
@@ -46,23 +46,13 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, OrderNative
     )
     void updateOrderStatus(@Param("id") UUID id, @Param("status") OrderStatusEnum status);
 
-//    @Lock(LockModeType.PESSIMISTIC_WRITE)
-//    @Query(
-//        "SELECT DISTINCT o " +
-//        "FROM Order o " +
-//        "JOIN FETCH o.listOrderDetails od " +
-//        "WHERE o.id = :id " +
-//        "   AND o.status = 'PROCESSING' " +
-//        "   AND NOT EXISTS ( " +
-//        "       SELECT 1 " +
-//        "       FROM OrderDetail odSub " +
-//        "       JOIN Inventory i " +
-//        "           ON odSub.productVariant.id = i.productVariant.id " +
-//        "       WHERE odSub.order = o " +
-//        "           AND i.freeze = true "
-//    )
-//    Optional<Order> getReadyProcessOrder(@Param("id") UUID id);
-
+    /**
+     * Versi {@link #findWithLockById(UUID)} dengan filter status, dipakai untuk transisi state
+     * ({@code PENDING -> CANCELLED}, {@code RESERVED -> COMPLETED}).
+     *
+     * <p>Query ini hanya menyentuh tabel {@code order} (tanpa join), sehingga aman dipasangi
+     * {@code FOR UPDATE}. Detail order dimuat lazy di dalam transaksi pemanggil.
+     */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints({
         @QueryHint(
@@ -72,13 +62,18 @@ public interface OrderRepository extends JpaRepository<Order, UUID>, OrderNative
     })
     Optional<Order> findByIdAndStatus(UUID id, OrderStatusEnum status);
 
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @QueryHints({
-        @QueryHint(
-            name = "jakarta.persistence.lock.timeout",
-            value = "-2"
-        )
-    })
+    /**
+     * Mengambil order beserta detail-nya TANPA lock.
+     *
+     * <p>{@code @EntityGraph} pada relasi {@code @OneToMany} menghasilkan LEFT OUTER JOIN, dan
+     * PostgreSQL menolak {@code FOR UPDATE} pada sisi nullable outer join
+     * ("FOR UPDATE cannot be applied to the nullable side of an outer join"). Karena itu method
+     * ini sengaja TIDAK memakai {@code @Lock}.
+     *
+     * <p>Bila butuh lock sekaligus detail, kunci parent lebih dulu lewat
+     * {@link #findByIdAndStatus(UUID, OrderStatusEnum)}, lalu baca detail di dalam transaksi
+     * yang sama.
+     */
     @EntityGraph(attributePaths = { "listOrderDetails" })
     Optional<Order> findWithDetailsByIdAndStatus(UUID id, OrderStatusEnum status);
 }
