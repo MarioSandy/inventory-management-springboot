@@ -42,6 +42,11 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class OrderService {
+    private static final String RELEASE_RESERVATION_FAILED_MESSAGE =
+        "Failed to release reservation for product variant %s (result: %s) while cancelling order %s. "
+        + "Throwing so the transaction rolls back instead of committing a partial release that would "
+        + "silently leak inventory.";
+
     private static final String ORDER_STATUS_TRANSITION_FAILED_MESSAGE =
         "Order status transition %s -> %s affected %d row(s) instead of 1 for order id %s. " +
         "The expected status guard was likely not satisfied (order was already moved by " +
@@ -276,13 +281,16 @@ public class OrderService {
                 .orElseThrow(() -> new EntityNotFoundException("Order not found"));
 
         OrderStatusEnum currentStatus = OrderStatusEnum.PROCESSING;
+        List<OrderReadyProcessDetailDto> listOrderDetail = orderReadyProcess.getListDetail();
 
-        BigDecimal totalSubtotal = BigDecimal.ZERO;
-        boolean mutationHasError = false;
-        boolean mutationFreeze = false;
+        BigDecimal orderTotal = listOrderDetail.stream()
+            .map(OrderReadyProcessDetailDto::subTotal)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        for (OrderReadyProcessDetailDto orderReadyProcessDetail : orderReadyProcess.getListDetail()) {
-            totalSubtotal = totalSubtotal.add(orderReadyProcessDetail.subTotal());
+        List<OrderReadyProcessDetailDto> listReservedDetail = new ArrayList<>();
+        InventoryMutationResultEnum failureResult = null;
+
+        for (OrderReadyProcessDetailDto orderReadyProcessDetail : listOrderDetail) {
             // Reserve Stock
             InventoryMutationResultEnum mutationResult =
                 inventoryService.mutation(
@@ -294,46 +302,42 @@ public class OrderService {
                     orderReadyProcessDetail.orderDetailId()
                 );
 
-            switch (mutationResult) {
-                case QUANTITY_EXCEEDS :
-                case RESERVED_QUANTITY_EXCEEDS : {
-                    mutationHasError = true;
-                    break;
-                }
-                case FREEZED: {
-                    mutationFreeze = true;
-                    break;
-                }
+            if (mutationResult == InventoryMutationResultEnum.SUCCESS) {
+                listReservedDetail.add(orderReadyProcessDetail);
+                continue;
             }
-            if (mutationHasError || mutationFreeze) break;
+
+            failureResult = mutationResult;
+            break;
         }
 
-        if (mutationHasError) {
-            userBalanceService.refund(
-                new UserBalanceMutationDto(
-                    BigDecimal.ZERO,
-                    totalSubtotal.multiply(BigDecimal.valueOf(-1)),
-                    UserBalanceLogTypeEnum.REFUND_STOCK_SHORTAGE,
-                    orderReadyProcess.getUserId(),
-                    null,
-                    orderReadyProcess.getId()
-                )
-            );
+        if (failureResult != null) {
+            releaseReservations(listReservedDetail, orderReadyProcess.getId());
 
-            transitionOrderStatus(
-                orderReadyProcess.getId(),
-                currentStatus,
-                OrderStatusEnum.CANCELLED
-            );
-            return;
-        }
+            if (failureResult == InventoryMutationResultEnum.FREEZED) {
+                transitionOrderStatus(
+                        orderReadyProcess.getId(),
+                        currentStatus,
+                        OrderStatusEnum.PENDING
+                );
+            } else {
+                userBalanceService.refund(
+                    new UserBalanceMutationDto(
+                        BigDecimal.ZERO,
+                        orderTotal.multiply(BigDecimal.valueOf(-1)),
+                        UserBalanceLogTypeEnum.REFUND_STOCK_SHORTAGE,
+                        orderReadyProcess.getUserId(),
+                        null,
+                        orderReadyProcess.getId()
+                    )
+                );
 
-        if (mutationFreeze) {
-            transitionOrderStatus(
-                orderReadyProcess.getId(),
-                currentStatus,
-                OrderStatusEnum.PENDING
-            );
+                transitionOrderStatus(
+                    orderReadyProcess.getId(),
+                    currentStatus,
+                    OrderStatusEnum.CANCELLED
+                );
+            }
             return;
         }
 
@@ -342,6 +346,34 @@ public class OrderService {
             currentStatus,
             OrderStatusEnum.RESERVED
         );
+    }
+
+    private void releaseReservations(
+        List<OrderReadyProcessDetailDto> listReservedDetail,
+        UUID orderId
+    ) {
+        for (OrderReadyProcessDetailDto reservedDetail : listReservedDetail) {
+            InventoryMutationResultEnum releaseResult =
+                inventoryService.mutation(
+                    reservedDetail.productVariantId(),
+                    0,
+                    -reservedDetail.quantity(),
+                    InventoryLogTypeEnum.RESERVATION_RELEASE,
+                    null,
+                    reservedDetail.orderDetailId()
+                );
+
+            if (releaseResult != InventoryMutationResultEnum.SUCCESS) {
+                throw new IllegalStateException(
+                    String.format(
+                        RELEASE_RESERVATION_FAILED_MESSAGE,
+                        reservedDetail.productVariantId(),
+                        releaseResult,
+                        orderId
+                    )
+                );
+            }
+        }
     }
 
     private void transitionOrderStatus(

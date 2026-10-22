@@ -47,8 +47,13 @@ public class OutboxService {
     }
 
     @Transactional
-    public List<OutboxPendingTriggerProjection> getPendingOutbox() {
-        return outboxRepository.getAndMarkedPendingOutbox();
+    public List<OutboxPendingTriggerProjection> getPendingOutbox(List<OutboxEventTypeEnum> eventTypes) {
+        return outboxRepository.getAndMarkedPendingOutbox(eventTypes);
+    }
+
+    @Transactional
+    public List<OutboxPendingTriggerProjection> getPendingOrderOutbox() {
+        return outboxRepository.getAndMarkedPendingOrderOutbox();
     }
 
     @Transactional
