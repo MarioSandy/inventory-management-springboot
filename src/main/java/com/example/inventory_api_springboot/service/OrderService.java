@@ -47,6 +47,11 @@ public class OrderService {
         + "Throwing so the transaction rolls back instead of committing a partial release that would "
         + "silently leak inventory.";
 
+    private static final String ORDER_STATUS_TRANSITION_FAILED_MESSAGE =
+        "Order status transition %s -> %s affected %d row(s) instead of 1 for order id %s. " +
+        "The expected status guard was likely not satisfied (order was already moved by " +
+        "another transaction), so the transition was rejected.";
+
     private final OrderRepository orderRepository;
     private final InventoryService inventoryService;
     private final ProductService productService;
@@ -158,7 +163,7 @@ public class OrderService {
         UUID id,
         UUID userId
     ) {
-        Order order = orderRepository.findWithDetailsByIdAndStatus(id, OrderStatusEnum.RESERVED)
+        Order order = orderRepository.findByIdAndStatus(id, OrderStatusEnum.RESERVED)
             .orElseThrow(() -> new EntityNotFoundException("Order not found"));
 
         order.setStatus(OrderStatusEnum.COMPLETED);
@@ -245,10 +250,10 @@ public class OrderService {
 
     @Transactional
     public void checkReadyOrderAndPushToOutbox() {
-        List<UUID> listReadyOrder = orderRepository.getReadyPendingOrderIdsForProcess();
+        List<UUID> readyOrderIds = orderRepository.getReadyPendingOrderIdsForProcess();
         List<UUID> chunked = new ArrayList<>();
 
-        for (UUID readyOrder : listReadyOrder) {
+        for (UUID readyOrder : readyOrderIds) {
             chunked.add(readyOrder);
 
              if (chunked.size() == 100) {
@@ -269,44 +274,15 @@ public class OrderService {
         }
     }
 
-    /**
-     * Memproses order berstatus PROCESSING: reserve inventory untuk setiap detail, lalu
-     * transisikan order sesuai hasilnya.
-     *
-     * <p>Isu CRIT-08: reservasi yang sudah sukses pada detail 1..N-1 tetap ter-commit ketika
-     * detail ke-N gagal, karena return normal dari {@code @Transactional} bukan rollback.
-     * Perbaikan di sini: setiap detail yang sukses direserve dicatat ke
-     * {@code listReservedDetail}. Ketika ada kegagalan, seluruh reservasi di
-     * {@code listReservedDetail} dilepas kembali via {@link #releaseReservations(List, UUID)}
-     * sebelum method return.
-     *
-     * <ul>
-     *   <li><b>Detail sukses</b>: {@code InventoryService.mutation(ORDER_RESERVED)} lalu
-     *       detail disimpan ke {@code listReservedDetail}.</li>
-     *   <li><b>Detail gagal</b>: loop berhenti, {@code failureResult} diisi.</li>
-     *   <li><b>FREEZED</b>: release list → transisi {@code PROCESSING -> PENDING}.
-     *       Scheduler ({@code getReadyPendingOrderIdsForProcess}) akan re-enqueue setelah
-     *       inventory tidak frozen. Tidak memakai exception karena outbox hanya retry 3x
-     *       (lihat {@code OutboxRepository.getAndMarkedPendingOrderOutbox}).</li>
-     *   <li><b>QUANTITY_EXCEEDS / RESERVED_QUANTITY_EXCEEDS</b>: release list → refund
-     *       penuh {@code reserved_balance} order (bukan parsial, karena order di-CANCELLED
-     *       seluruhnya) → transisi {@code PROCESSING -> CANCELLED}.</li>
-     *   <li><b>Release gagal</b>: {@link #releaseReservations(List, UUID)} melempar
-     *       {@link IllegalStateException} agar transaksi rollback total — mencegah state
-     *       "sebagian dirilis, sebagian masih ter-reserve".</li>
-     * </ul>
-     */
     @Transactional
     public void processOrder(OutboxPublisherMessageDto orderData) {
         OrderReadyProcessDto orderReadyProcess =
             orderRepository.getReadyProcessOrder(orderData.getEntityId())
                 .orElseThrow(() -> new EntityNotFoundException("Order not found"));
 
+        OrderStatusEnum currentStatus = OrderStatusEnum.PROCESSING;
         List<OrderReadyProcessDetailDto> listOrderDetail = orderReadyProcess.getListDetail();
 
-        // Refund yang benar adalah total order penuh (semua detail), bukan prefix sampai
-        // detail yang gagal. Saldo user di-reserve penuh saat create(), jadi saat order
-        // dibatalkan seluruh reservasi balance harus dilepas.
         BigDecimal orderTotal = listOrderDetail.stream()
             .map(OrderReadyProcessDetailDto::subTotal)
             .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -336,21 +312,14 @@ public class OrderService {
         }
 
         if (failureResult != null) {
-            // Release seluruh reservasi yang sudah sukses sebelum detail yang gagal.
-            // Release yang gagal melempar exception sehingga transaksi rollback total
-            // (tidak ada reservasi yatim yang tertinggal).
             releaseReservations(listReservedDetail, orderReadyProcess.getId());
 
             if (failureResult == InventoryMutationResultEnum.FREEZED) {
-                // Kembalikan ke PENDING: scheduler akan memproses ulang setelah unfreeze.
-                // Semua reservasi yang sempat sukses sudah di-release di atas, jadi retry
-                // berikutnya tidak menggandakan reserved_quantity.
                 orderRepository.updateOrderStatus(
                     orderReadyProcess.getId(),
                     OrderStatusEnum.PENDING
                 );
             } else {
-                // Shortage: refund penuh + CANCELLED.
                 userBalanceService.refund(
                     new UserBalanceMutationDto(
                         BigDecimal.ZERO,
@@ -362,30 +331,22 @@ public class OrderService {
                     )
                 );
 
-                orderRepository.updateOrderStatus(
+                transitionOrderStatus(
                     orderReadyProcess.getId(),
+                    currentStatus,
                     OrderStatusEnum.CANCELLED
                 );
             }
             return;
         }
 
-        orderRepository.updateOrderStatus(
+        transitionOrderStatus(
             orderReadyProcess.getId(),
+            currentStatus,
             OrderStatusEnum.RESERVED
         );
     }
 
-    /**
-     * Release reservasi inventory untuk setiap detail yang sukses sebelum kegagalan,
-     * memakai {@link InventoryLogTypeEnum#RESERVATION_RELEASE} (arah negatif:
-     * {@code reservedQuantity < 0}).
-     *
-     * <p>Urutan release mengikuti urutan reserve, sehingga lock pesimis yang sudah
-     * dipegang pada fase reserve tetap dipegang (tidak ada akuisisi lock baru terhadap
-     * {@code Inventory} yang sama → tidak ada risiko deadlock antar detail dalam
-     * transaksi yang sama).
-     */
     private void releaseReservations(
         List<OrderReadyProcessDetailDto> listReservedDetail,
         UUID orderId
@@ -411,6 +372,26 @@ public class OrderService {
                     )
                 );
             }
+        }
+    }
+
+    private void transitionOrderStatus(
+        UUID orderId,
+        OrderStatusEnum expectedStatus,
+        OrderStatusEnum newStatus
+    ) {
+        int updatedRows = orderRepository.updateOrderStatus(orderId, newStatus, expectedStatus);
+
+        if (updatedRows != 1) {
+            throw new IllegalStateException(
+                String.format(
+                    ORDER_STATUS_TRANSITION_FAILED_MESSAGE,
+                    expectedStatus,
+                    newStatus,
+                    updatedRows,
+                    orderId
+                )
+            );
         }
     }
 }
