@@ -211,6 +211,11 @@ public class OrderService {
                     .reservedQuantityBefore(inventory.getReservedQuantity())
                     .reservedQuantityAfter(reservedQuantityAfter)
                     .reservedQuantityChange(quantityChange)
+                    .productVariant(
+                        productService.getProductVariantReferenceById(
+                            orderDetail.getProductVariant().getId()
+                        )
+                    )
                     .type(InventoryLogTypeEnum.ORDER_SHIPPED)
                     .build();
 
