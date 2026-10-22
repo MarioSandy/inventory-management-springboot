@@ -2,6 +2,7 @@ package com.example.inventory_api_springboot.queue.publisher;
 
 import com.example.inventory_api_springboot.config.RabbitMQConfig;
 import com.example.inventory_api_springboot.dto.queue.OutboxPublisherMessageDto;
+import com.example.inventory_api_springboot.enums.OutboxEventTypeEnum;
 import com.example.inventory_api_springboot.projection.OutboxPendingTriggerProjection;
 import com.example.inventory_api_springboot.service.OutboxService;
 import com.nimbusds.jose.shaded.gson.Gson;
@@ -12,6 +13,7 @@ import org.springframework.amqp.support.converter.MessageConversionException;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Service
@@ -22,7 +24,17 @@ public class MessagePublisher {
     private final ObjectMapper objectMapper;
 
     public void checkAndTriggerPendingMessage() {
-        List<OutboxPendingTriggerProjection> listPendingOutbox = outboxService.getPendingOutbox();
+        List<OutboxEventTypeEnum> listForbiddenType = Arrays.asList(OutboxEventTypeEnum.ORDER_PROCESSING);
+
+        List<OutboxPendingTriggerProjection> listPendingOutbox = outboxService.getPendingOutbox(listForbiddenType);
+
+        for (OutboxPendingTriggerProjection pendingOutbox : listPendingOutbox) {
+            triggerMessage(pendingOutbox);
+        }
+    }
+
+    public void checkAndTriggerPendingOrderProcessingMessage() {
+        List<OutboxPendingTriggerProjection> listPendingOutbox = outboxService.getPendingOrderOutbox();
 
         for (OutboxPendingTriggerProjection pendingOutbox : listPendingOutbox) {
             triggerMessage(pendingOutbox);
