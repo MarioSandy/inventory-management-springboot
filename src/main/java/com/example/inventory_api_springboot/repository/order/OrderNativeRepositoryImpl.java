@@ -20,60 +20,89 @@ import java.util.UUID;
 
 @RequiredArgsConstructor
 public class OrderNativeRepositoryImpl implements OrderNativeRepository {
+    private static final String ORDER_DETAIL_CANCEL_UNCHANGED_MESSAGE =
+        "Cancelling order detail affected %d row(s) but %d order detail id(s) were locked. " +
+        "The locked rows are expected to be updated without exception.";
+
     @PersistenceContext
     private EntityManager entityManager;
 
     private final ObjectMapper objectMapper;
 
+    /**
+     * Memilih order detail dari order berstatus ORDER_RESERVED untuk variant tertentu yang harus
+     * dibatalkan karena stok kurang, lalu menandainya cancelled = TRUE.
+     *
+     * <p>Urutan pembatalan: order TERBARU dibatalkan lebih dulu, sehingga order terlama tetap
+     * mempertahankan alokasinya (fairness untuk order yang lebih awal).
+     *
+     * <p>Catatan implementasi:
+     * <ul>
+     *   <li>Window function diletakkan di dalam CTE karena PostgreSQL menolak
+     *       {@code FOR UPDATE} pada level query yang memakai window function.</li>
+     *   <li>{@code order} adalah reserved keyword sehingga wajib di-quote: {@code "order"}.</li>
+     *   <li>CTE memilih {@code od.id} (bukan {@code o.id}) agar join ke {@code selected}
+     *       membandingkan kolom yang setara.</li>
+     *   <li>Tie-breaker {@code o.id, od.id} dipakai supaya urutan window deterministik saat
+     *       {@code created_at} kembar.</li>
+     *   <li>{@code @Transactional} diperlukan agar lock {@code FOR UPDATE OF od} tetap mengikat
+     *       sampai statement {@code UPDATE} berikutnya selesai.</li>
+     * </ul>
+     */
+    @Transactional
     public List<OrderDetailCancelResponseDto> cancelOrderDetail(
         UUID productVariantId,
         int shortage
     ) {
-        String queryOrderLocked =
-            "WITH order_item_counted AS (" +
-            "   SELECT o.id, " +
-            "          od.quantity, " +
-            "          SUM(quantity) OVER (" +
-            "               ORDER BY o.created_at DESC " +
-            "           ) AS cumulative_reserved " +
-            "   FROM order o " +
-            "   JOIN order_detail od " +
-            "   WHERE o.status = 'ORDER_RESERVED' " +
-            "       AND od.product_variant_id = :productVariantId " +
-            "   ORDER BY o.created_at DESC " +
-            "), " +
-            "selected AS (" +
-            "   SELECT id " +
-            "   FROM order_item_counted " +
-            "   WHERE cumulative_reserved - quantity < :shortage " +
-            ") " +
-            "SELECT od.id," +
-            "       o.user_id," +
-            "       od.quantity, " +
-            "       od.sub_total " +
-            "FROM order o " +
-            "JOIN order_detail od " +
-            "   ON o.id = od.order_id " +
-            "JOIN selected s " +
-            "   ON od.id = s.id " +
-            "FOR UPDATE od ";
+        // Window function ada di dalam CTE supaya level terluar bebas dari window function
+        // dan boleh memakai FOR UPDATE.
+        Query selectQuery = entityManager.createNativeQuery(
+            """
+            WITH order_item_counted AS (
+                SELECT od.id,
+                       od.quantity,
+                       SUM(od.quantity) OVER (
+                           ORDER BY o.created_at DESC, o.id DESC, od.id DESC
+                       ) AS cumulative_reserved
+                FROM "order" o
+                JOIN order_detail od
+                    ON od.order_id = o.id
+                WHERE o.status = 'ORDER_RESERVED'
+                    AND od.product_variant_id = :productVariantId
+            ), selected AS (
+                SELECT id
+                FROM order_item_counted
+                WHERE cumulative_reserved - quantity < :shortage
+            )
+            SELECT od.id,
+                   o.user_id,
+                   od.quantity,
+                   od.sub_total
+            FROM "order" o
+            JOIN order_detail od
+                ON od.order_id = o.id
+            JOIN selected s
+                ON od.id = s.id
+            FOR UPDATE OF od
+            """
+        );
 
-        Query query = entityManager.createNativeQuery(queryOrderLocked);
-        query.setParameter("productVariantId", productVariantId);
-        query.setParameter("shortage", shortage);
-        List<Object[]> returnedList = query.getResultList();
+        selectQuery.setParameter("productVariantId", productVariantId);
+        selectQuery.setParameter("shortage", shortage);
 
-        List<OrderDetailCancelResponseDto> listOrderDetailCancel = new ArrayList<>();
-        List<UUID> listOrderIds = new ArrayList<>();
+        List<Object[]> returnedList = selectQuery.getResultList();
+
+        List<OrderDetailCancelResponseDto> listOrderDetailCancel = new ArrayList<>(returnedList.size());
+        List<UUID> listOrderDetailIds = new ArrayList<>(returnedList.size());
 
         for (Object[] currentReturnedList : returnedList) {
-            listOrderIds.add(
-                (UUID) currentReturnedList[0]
-            );
+            UUID currentOrderDetailId = (UUID) currentReturnedList[0];
+
+            listOrderDetailIds.add(currentOrderDetailId);
 
             listOrderDetailCancel.add(
                 new OrderDetailCancelResponseDto(
-                    (UUID) currentReturnedList[0],
+                    currentOrderDetailId,
                     (UUID) currentReturnedList[1],
                     (int) currentReturnedList[2],
                     (BigDecimal) currentReturnedList[3]
@@ -81,14 +110,32 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
             );
         }
 
-        String queryUpdateStatus =
-            "UPDATE order_detail " +
-            "   SET cancelled = TRUE " +
-            "WHERE id IN :ids ";
+        // Tidak ada yang perlu dibatalkan: jangan eksekusi UPDATE dengan list kosong,
+        // karena "WHERE id IN ()" bukan SQL yang valid.
+        if (listOrderDetailIds.isEmpty()) {
+            return listOrderDetailCancel;
+        }
 
-        query = entityManager.createNativeQuery(queryUpdateStatus);
-        query.setParameter("ids", listOrderIds);
-        query.executeUpdate();
+        Query updateQuery = entityManager.createNativeQuery(
+            """
+            UPDATE order_detail
+               SET cancelled = TRUE
+            WHERE id IN :ids
+            """
+        );
+
+        updateQuery.setParameter("ids", listOrderDetailIds);
+        int updatedRows = updateQuery.executeUpdate();
+
+        if (updatedRows != listOrderDetailIds.size()) {
+            throw new IllegalStateException(
+                String.format(
+                    ORDER_DETAIL_CANCEL_UNCHANGED_MESSAGE,
+                    updatedRows,
+                    listOrderDetailIds.size()
+                )
+            );
+        }
 
         return listOrderDetailCancel;
     }
