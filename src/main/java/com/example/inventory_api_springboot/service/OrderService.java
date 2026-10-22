@@ -42,6 +42,11 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class OrderService {
+    private static final String RELEASE_RESERVATION_FAILED_MESSAGE =
+        "Failed to release reservation for product variant %s (result: %s) while cancelling order %s. "
+        + "Throwing so the transaction rolls back instead of committing a partial release that would "
+        + "silently leak inventory.";
+
     private final OrderRepository orderRepository;
     private final InventoryService inventoryService;
     private final ProductService productService;
@@ -264,18 +269,53 @@ public class OrderService {
         }
     }
 
+    /**
+     * Memproses order berstatus PROCESSING: reserve inventory untuk setiap detail, lalu
+     * transisikan order sesuai hasilnya.
+     *
+     * <p>Isu CRIT-08: iterasi sebelumnya meninggalkan reservasi inventory yatim ketika
+     * detail ke-N gagal, karena blok error hanya melakukan refund balance lalu return
+     * (return normal = commit, tidak ada rollback). Perbaikan di sini:
+     *
+     * <ul>
+     *   <li>Detail yang sukses direserve dicatat di {@code listReservedDetail}.</li>
+     *   <li>Jika ada kegagalan, seluruh reservasi yang sudah sukses di-release melalui
+     *       {@link InventoryLogTypeEnum#RESERVATION_RELEASE} sehingga
+     *       {@code inventory.reserved_quantity} kembali ke nilai sebelum transaksi dan
+     *       {@code inventory_log} tetap punya jejak audit.</li>
+     *   <li>{@code FREEZED}: order kembali ke {@code PENDING}. Scheduler
+     *       ({@code getReadyPendingOrderIdsForProcess}) akan me-skip order yang masih
+     *       menyentuh inventory frozen, lalu memprosesnya kembali setelah unfreeze.
+     *       Tidak melempar exception karena outbox hanya retry 3x (lihat
+     *       {@code OutboxRepository.getAndMarkedPendingOutbox}); kalau freeze lebih lama
+     *       dari itu order akan nyangkut di PROCESSING.</li>
+     *   <li>{@code QUANTITY_EXCEEDS} / {@code RESERVED_QUANTITY_EXCEEDS}: refund penuh
+     *       {@code reserved_balance} order (bukan parsial) karena order di-CANCELLED
+     *       seluruhnya, lalu transisi ke {@code CANCELLED}.</li>
+     *   <li>Kegagalan saat release (mis. variant ke-freeze di sela reserve dan release)
+     *       melempar {@link IllegalStateException} agar transaksi rollback total —
+     *       mencegah state "sebagian directed, sebagian masih ter-reserve".</li>
+     * </ul>
+     */
     @Transactional
     public void processOrder(OutboxPublisherMessageDto orderData) {
         OrderReadyProcessDto orderReadyProcess =
             orderRepository.getReadyProcessOrder(orderData.getEntityId())
                 .orElseThrow(() -> new EntityNotFoundException("Order not found"));
 
-        BigDecimal totalSubtotal = BigDecimal.ZERO;
-        boolean mutationHasError = false;
-        boolean mutationFreeze = false;
+        List<OrderReadyProcessDetailDto> listOrderDetail = orderReadyProcess.getListDetail();
 
-        for (OrderReadyProcessDetailDto orderReadyProcessDetail : orderReadyProcess.getListDetail()) {
-            totalSubtotal = totalSubtotal.add(orderReadyProcessDetail.subTotal());
+        // Refund yang benar adalah total order penuh (semua detail), bukan prefix sampai
+        // detail yang gagal. Saldo user di-reserve penuh saat create(), jadi saat order
+        // dibatalkan seluruh reservasi balance harus dilepas.
+        BigDecimal orderTotal = listOrderDetail.stream()
+            .map(OrderReadyProcessDetailDto::subTotal)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        List<OrderReadyProcessDetailDto> listReservedDetail = new ArrayList<>();
+        InventoryMutationResultEnum failureResult = null;
+
+        for (OrderReadyProcessDetailDto orderReadyProcessDetail : listOrderDetail) {
             // Reserve Stock
             InventoryMutationResultEnum mutationResult =
                 inventoryService.mutation(
@@ -287,39 +327,89 @@ public class OrderService {
                     orderReadyProcessDetail.orderDetailId()
                 );
 
-            switch (mutationResult) {
-                case QUANTITY_EXCEEDS :
-                case RESERVED_QUANTITY_EXCEEDS : {
-                    mutationHasError = true;
-                    break;
-                }
-                case FREEZED: {
-                    mutationFreeze = true;
-                    break;
-                }
+            if (mutationResult == InventoryMutationResultEnum.SUCCESS) {
+                listReservedDetail.add(orderReadyProcessDetail);
+                continue;
             }
-            if (mutationHasError || mutationFreeze) break;
+
+            failureResult = mutationResult;
+            break;
         }
 
-        if (mutationHasError) {
-            userBalanceService.refund(
-                new UserBalanceMutationDto(
-                    BigDecimal.ZERO,
-                    totalSubtotal.multiply(BigDecimal.valueOf(-1)),
-                    UserBalanceLogTypeEnum.REFUND_STOCK_SHORTAGE,
-                    orderReadyProcess.getUserId(),
-                    null,
-                    orderReadyProcess.getId()
-                )
-            );
+        if (failureResult != null) {
+            // Release semua reservasi yang sudah sukses sebelum kegagalan. Release yang
+            // gagal melempar exception sehingga transaksi rollback total (tidak ada
+            // reservasi yatim yang tertinggal).
+            releaseReservations(listReservedDetail, orderReadyProcess.getId());
 
-            orderRepository.updateOrderStatus(orderReadyProcess.getId(), OrderStatusEnum.CANCELLED);
+            if (failureResult == InventoryMutationResultEnum.FREEZED) {
+                // Kembalikan ke PENDING: scheduler akan memproses ulang setelah unfreeze.
+                // Semua reservasi yang sempat sukses sudah di-release di atas, jadi retry
+                // berikutnya tidak menggandakan reserved_quantity.
+                orderRepository.updateOrderStatus(
+                    orderReadyProcess.getId(),
+                    OrderStatusEnum.PENDING
+                );
+            } else {
+                // Shortage: refund penuh + CANCELLED.
+                userBalanceService.refund(
+                    new UserBalanceMutationDto(
+                        BigDecimal.ZERO,
+                        orderTotal.multiply(BigDecimal.valueOf(-1)),
+                        UserBalanceLogTypeEnum.REFUND_STOCK_SHORTAGE,
+                        orderReadyProcess.getUserId(),
+                        null,
+                        orderReadyProcess.getId()
+                    )
+                );
+
+                orderRepository.updateOrderStatus(
+                    orderReadyProcess.getId(),
+                    OrderStatusEnum.CANCELLED
+                );
+            }
             return;
         }
 
-        if (mutationFreeze) {
-            orderRepository.updateOrderStatus(orderReadyProcess.getId(), OrderStatusEnum.PENDING);
+        orderRepository.updateOrderStatus(
+            orderReadyProcess.getId(),
+            OrderStatusEnum.RESERVED
+        );
+    }
+
+    /**
+     * Release reservasi inventory untuk setiap detail yang sukses sebelum kegagalan,
+     * menggunakan {@link InventoryLogTypeEnum#RESERVATION_RELEASE} (arah negatif).
+     *
+     * <p>Urutan release mengikuti urutan detail, jadi lock pesimis yang sudah diambil
+     * pada fase reserve tetap dipegang (tidak ada akuisisi lock baru → tidak ada risiko
+     * deadlock antar detail dalam transaksi yang sama).
+     */
+    private void releaseReservations(
+        List<OrderReadyProcessDetailDto> listReservedDetail,
+        UUID orderId
+    ) {
+        for (OrderReadyProcessDetailDto reservedDetail : listReservedDetail) {
+            InventoryMutationResultEnum releaseResult =
+                inventoryService.mutation(
+                    reservedDetail.productVariantId(),
+                    0,
+                    -reservedDetail.quantity(),
+                    InventoryLogTypeEnum.RESERVATION_RELEASE,
+                    null,
+                    reservedDetail.orderDetailId()
+                );
+
+            if (releaseResult != InventoryMutationResultEnum.SUCCESS) {
+                throw new IllegalStateException(
+                    String.format(
+                        RELEASE_RESERVATION_FAILED_MESSAGE,
+                        reservedDetail.productVariantId(),
+                        releaseResult,
+                        orderId
+                    )
+                );
+            }
         }
-        orderRepository.updateOrderStatus(orderReadyProcess.getId(), OrderStatusEnum.RESERVED);
     }
 }
