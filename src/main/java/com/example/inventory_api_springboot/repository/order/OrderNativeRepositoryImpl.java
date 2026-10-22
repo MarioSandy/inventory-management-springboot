@@ -7,6 +7,8 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.Query;
 import lombok.RequiredArgsConstructor;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
@@ -15,7 +17,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
 public class OrderNativeRepositoryImpl implements OrderNativeRepository {
@@ -92,6 +93,7 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
         return listOrderDetailCancel;
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
     public Optional<OrderReadyProcessDto> getReadyProcessOrder(UUID id) {
         Query query = entityManager.createNativeQuery(
             "WITH locked AS (" +
@@ -110,7 +112,7 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
             "       ) " +
             "   ORDER BY o.created_at ASC " +
             "   LIMIT 500 " +
-            "   FOR UPDATE SKIP LOCKED "+
+            "   FOR UPDATE "+
             ") " +
             "SELECT  l.id, " +
             "        l.user_id, " +
@@ -146,39 +148,34 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
         );
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
     public List<UUID> getReadyPendingOrderIdsForProcess() {
         Query query = entityManager.createNativeQuery(
-            "SELECT id " +
-            "FROM \"order\" o " +
-            "WHERE o.status = 'PENDING' " +
-            "   AND NOT EXISTS ( " +
-            "       SELECT 1 " +
-            "       FROM inventory i " +
-            "       JOIN order_detail od " +
-            "           ON i.product_variant_id = od.product_variant_id " +
-            "       WHERE o.id = od.order_id " +
-            "           AND \"freeze\" = TRUE " +
+            "WITH locked AS ( " +
+            "   SELECT o.id " +
+            "   FROM \"order\" o " +
+            "   WHERE o.status = 'PENDING' " +
+            "       AND NOT EXISTS ( " +
+            "           SELECT 1 " +
+            "           FROM inventory i " +
+            "           JOIN order_detail od " +
+            "               ON i.product_variant_id = od.product_variant_id " +
+            "           WHERE o.id = od.order_id " +
+            "               AND i.\"freeze\" = TRUE " +
+            "       ) " +
+            "   ORDER BY o.created_at ASC, o.id ASC " +
+            "   LIMIT 500 " +
+            "   FOR UPDATE " +
             ") " +
-            "ORDER BY o.created_at ASC " +
-            "LIMIT 500 " +
-            "FOR UPDATE SKIP LOCKED",
-            UUID.class
-        );
-
-        List<UUID> listOrderIds = query.getResultList();
-
-        if (listOrderIds.isEmpty())
-            return listOrderIds;
-
-        query = entityManager.createNativeQuery(
-            "UPDATE \"order\" " +
+            "UPDATE \"order\" o " +
             "   SET status = 'PROCESSING' " +
-            "WHERE id IN :orderIds " +
-            "RETURNING id ",
+            "FROM locked l " +
+            "WHERE o.id = l.id " +
+            "   AND o.status = 'PENDING' " +
+            "RETURNING o.id ",
             UUID.class
         );
 
-        query.setParameter("orderIds", listOrderIds);
         return query.getResultList();
     }
 }
