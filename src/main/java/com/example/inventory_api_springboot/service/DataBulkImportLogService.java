@@ -16,6 +16,9 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class DataBulkImportLogService {
+    private static final String COUNTER_UPDATE_FAILED_MESSAGE =
+        "Bulk import log counter update affected %d row(s) instead of 1 for id %s.";
+
     private final DataBulkImportLogRepository dataBulkImportLogRepository;
     private final DataBulkImportLogErrorRepository dataBulkImportLogErrorRepository;
 
@@ -51,21 +54,40 @@ public class DataBulkImportLogService {
 
     @Transactional
     public void incrementTotalRawAndActualChunk(UUID dataBulkImportLogId, boolean incrementActualChunk) {
-        dataBulkImportLogRepository.incrementTotalRawAndActualChunk(dataBulkImportLogId, incrementActualChunk);
+        int updatedRows = dataBulkImportLogRepository
+            .incrementTotalRawAndActualChunk(dataBulkImportLogId, incrementActualChunk);
+        assertSingleRowUpdated(updatedRows, dataBulkImportLogId);
     }
 
     @Transactional
     public void incrementProcessedChunk(UUID dataBulkImportLogId) {
-        dataBulkImportLogRepository.incrementProcessedActualChunk(dataBulkImportLogId);
+        int updatedRows = dataBulkImportLogRepository.incrementProcessedActualChunk(dataBulkImportLogId);
+        assertSingleRowUpdated(updatedRows, dataBulkImportLogId);
     }
 
     @Transactional
     public void updateStatusError(UUID dataBulkImportLogId) {
-        dataBulkImportLogRepository.updateStatusError(dataBulkImportLogId);
+        int updatedRows = dataBulkImportLogRepository.updateStatusError(dataBulkImportLogId);
+        assertSingleRowUpdated(updatedRows, dataBulkImportLogId);
     }
 
+    /**
+     * Menandai log sebagai FINISH hanya jika seluruh chunk sudah diproses.
+     * 0 row ter-update berarti guard "processedActualChunk = totalActualChunk" belum terpenuhi
+     * (import masih berjalan), sehingga bukan kondisi error.
+     *
+     * @return true bila status berhasil diubah menjadi FINISH.
+     */
     @Transactional
-    public void updateStatusFinish(UUID dataBulkImportLogId) {
-        dataBulkImportLogRepository.updateStatusFinish(dataBulkImportLogId);
+    public boolean updateStatusFinish(UUID dataBulkImportLogId) {
+        return dataBulkImportLogRepository.updateStatusFinish(dataBulkImportLogId) == 1;
+    }
+
+    private void assertSingleRowUpdated(int updatedRows, UUID dataBulkImportLogId) {
+        if (updatedRows != 1) {
+            throw new IllegalStateException(
+                String.format(COUNTER_UPDATE_FAILED_MESSAGE, updatedRows, dataBulkImportLogId)
+            );
+        }
     }
 }
