@@ -1,0 +1,2 @@
+ALTER TABLE outbox
+    ADD COLUMN locked_at TIMESTAMP NULL;

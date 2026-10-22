@@ -49,9 +49,10 @@ public interface InventoryRepository extends JpaRepository<Inventory, UUID>, Inv
             "   SET quantity = i.quantity - il.reserved_quantity_change, " +
             "       reserved_quantity = i.reserved_quantity - il.reserved_quantity_change " +
             "FROM inventory_log il " +
-            "JOIN order_detail od ON od.id = il.reference_id " +
+            "JOIN order_detail od " +
+            "   ON od.id = il.reference_id" +
+            "   AND od.id = :orderDetailId " +
             "WHERE i.product_variant_id = il.product_variant_id " +
-            "   AND od.order_id = :orderId " +
             "   AND il.type = 'ORDER_RESERVED' " +
             "   AND i.quantity - il.reserved_quantity_change >= 0 " +
             "   AND i.reserved_quantity - il.reserved_quantity_change >= 0 " +
@@ -63,7 +64,7 @@ public interface InventoryRepository extends JpaRepository<Inventory, UUID>, Inv
             "   ) ",
         nativeQuery = true
     )
-    int finishOrder(@Param("orderId") UUID orderId);
+    int finishOrder(@Param("orderDetailId") UUID orderDetailId);
 
     @Transactional
     @Modifying
@@ -82,6 +83,10 @@ public interface InventoryRepository extends JpaRepository<Inventory, UUID>, Inv
         "WHERE productVariantId IN :ids "
     )
     int unfreezeInventories(@Param("ids") Set<UUID> id);
+
+    @Transactional
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    List<Inventory> findAllForUpdateByProductVariantIdInAndFreeze(Collection<UUID> listIds, boolean freeze);
 
     @Transactional
     List<Inventory> findAllByProductVariantIdInAndFreeze(Collection<UUID> listIds, boolean freeze);

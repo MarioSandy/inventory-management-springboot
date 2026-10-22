@@ -1,0 +1,2 @@
+ALTER TABLE product_variant
+    ADD COLUMN version INT DEFAULT 1 NOT NULL

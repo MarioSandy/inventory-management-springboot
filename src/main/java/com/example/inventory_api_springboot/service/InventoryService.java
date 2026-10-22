@@ -48,24 +48,15 @@ public class InventoryService {
 
     @Transactional
     public void mutation(
-        UUID orderId,
+        UUID referenceId,
         InventoryLogTypeEnum type,
         UUID userId
     ) {
         switch (type) {
-            case ORDER_CANCELLED : {
-                inventoryRepository.cancelOrder(orderId);
-                inventoryLogRepository.insertReversedLog(
-                    orderId,
-                    InventoryLogTypeEnum.ORDER_CANCELLED,
-                    userId
-                );
-                break;
-            }
             case ORDER_SHIPPED: {
-                inventoryRepository.finishOrder(orderId);
+                inventoryRepository.finishOrder(referenceId);
                 inventoryLogRepository.insertReversedLog(
-                    orderId,
+                    referenceId,
                     InventoryLogTypeEnum.ORDER_SHIPPED,
                     userId
                 );
@@ -98,7 +89,7 @@ public class InventoryService {
             }
             case QUANTITY_EXCEEDS: {
                 throw new IllegalArgumentException(
-                        "Quantity exceeds system inventory quantity or changed quantity below change reserved quantity"
+                    "Quantity exceeds system inventory quantity or changed quantity below change reserved quantity"
                 );
             }
         }
@@ -215,6 +206,11 @@ public class InventoryService {
     }
 
     @Transactional
+    public List<Inventory> findAllForUpdateByProductVariantIdInAndFreeze(List<UUID> listProductVariantIds, boolean isFreeze) {
+        return inventoryRepository.findAllForUpdateByProductVariantIdInAndFreeze(listProductVariantIds, isFreeze);
+    }
+
+    @Transactional
     public Optional<Inventory> findForUpdateByProductVariantIdAndFreeze(UUID productVariantId, boolean isFreeze) {
         return inventoryRepository.findForUpdateByProductVariantIdAndFreeze(productVariantId, isFreeze);
     }
@@ -229,5 +225,20 @@ public class InventoryService {
                 listInventoryStockOpnameData,
                 userId
             );
+    }
+
+    @Transactional
+    public void save(Inventory id) {
+        inventoryRepository.save(id);
+    }
+
+    @Transactional
+    public void saveAll(List<Inventory> listId) {
+        inventoryRepository.saveAll(listId);
+    }
+
+    @Transactional
+    public void saveAllLog(List<InventoryLog> listLogId) {
+        inventoryLogRepository.saveAll(listLogId);
     }
 }
