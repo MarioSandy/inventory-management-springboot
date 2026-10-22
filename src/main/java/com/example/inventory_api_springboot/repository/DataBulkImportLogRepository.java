@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -14,6 +15,7 @@ public interface DataBulkImportLogRepository extends JpaRepository<DataBulkImpor
     Optional<DataBulkImportLog> findByIdAndStatus(UUID id, DataBulkImportLogStatusEnum status);
 
     @Modifying
+    @Transactional
     @Query(
         "UPDATE DataBulkImportLog SET " +
         "   totalRawChunk = totalRawChunk + 1, " +
@@ -28,6 +30,7 @@ public interface DataBulkImportLogRepository extends JpaRepository<DataBulkImpor
     int incrementTotalRawAndActualChunk(@Param("id") UUID id, @Param("incrementActualChunk") boolean incrementActualChunk);
 
     @Modifying
+    @Transactional
     @Query(
         "UPDATE DataBulkImportLog " +
         "   SET processedActualChunk = processedActualChunk + 1 " +
@@ -36,6 +39,7 @@ public interface DataBulkImportLogRepository extends JpaRepository<DataBulkImpor
     int incrementProcessedActualChunk(@Param("id") UUID id);
 
     @Modifying
+    @Transactional
     @Query(
         "UPDATE DataBulkImportLog " +
         "   SET status = 'ERROR' " +
@@ -44,6 +48,7 @@ public interface DataBulkImportLogRepository extends JpaRepository<DataBulkImpor
     int updateStatusError(@Param("id") UUID id);
 
     @Modifying
+    @Transactional
     @Query(
         "UPDATE DataBulkImportLog " +
         "   SET status = 'FINISH' " +
