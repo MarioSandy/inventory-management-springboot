@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 public class OrderProcessingConsumer {
     private final OrderService orderService;
 
-    @RabbitListener(queues = RabbitMQConfig.ORDER_PROCESSING_QUEUE, concurrency = "5")
+    @RabbitListener(queues = RabbitMQConfig.ORDER_PROCESSING_QUEUE, concurrency = "1")
     public void processOrder(OutboxPublisherMessageDto orderData) {
         try {
             orderService.processOrder(orderData);

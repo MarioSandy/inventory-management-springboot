@@ -1,6 +1,7 @@
 package com.example.inventory_api_springboot.repository;
 
 import com.example.inventory_api_springboot.entity.Outbox;
+import com.example.inventory_api_springboot.enums.OutboxEventTypeEnum;
 import com.example.inventory_api_springboot.projection.OutboxPendingTriggerProjection;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -26,6 +27,7 @@ public interface OutboxRepository extends JpaRepository<Outbox, UUID> {
             "       'PENDING', " +
             "       'DISPATCH_FAILED' " +
             "   ) " +
+            "       AND event_type NOT IN :listType " +
             "       AND locked_at IS NULL " +
             "       AND retry_count <= 3 " +
             "   ORDER BY created_at ASC " +
@@ -35,7 +37,34 @@ public interface OutboxRepository extends JpaRepository<Outbox, UUID> {
             "RETURNING id, event_type, entity_id, created_by, payload ",
         nativeQuery = true
     )
-    public List<OutboxPendingTriggerProjection> getAndMarkedPendingOutbox();
+    public List<OutboxPendingTriggerProjection> getAndMarkedPendingOutbox(
+        @Param("listType") List<OutboxEventTypeEnum> eventTypes
+    );
+
+    @Transactional
+    @Query(
+        value =
+            "UPDATE outbox SET " +
+            "   status = 'PROCESSING', " +
+            "   locked_at = CURRENT_TIMESTAMP " +
+            "WHERE id IN ( " +
+            "   SELECT id " +
+            "   FROM outbox " +
+            "   WHERE status IN (" +
+            "       'PENDING', " +
+            "       'DISPATCH_FAILED' " +
+            "   ) " +
+            "       AND event_type = 'ORDER_PROCESSING' " +
+            "       AND locked_at IS NULL " +
+            "       AND retry_count <= 3 " +
+            "   ORDER BY created_at ASC " +
+            "   LIMIT 100 " +
+            "   FOR UPDATE " +
+            ") " +
+            "RETURNING id, event_type, entity_id, created_by, payload ",
+            nativeQuery = true
+    )
+    public List<OutboxPendingTriggerProjection> getAndMarkedPendingOrderOutbox();
 
     @Modifying
     @Transactional

@@ -14,4 +14,9 @@ public class OutboxScheduler {
     public void checkAndPushOutbox() {
         messagePublisher.checkAndTriggerPendingMessage();
     }
+
+    @Scheduled(fixedRate = 60000)
+    public void checkAndPushOrderOutbox() {
+        messagePublisher.checkAndTriggerPendingOrderProcessingMessage();
+    }
 }
