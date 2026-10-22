@@ -42,6 +42,11 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class OrderService {
+    private static final String ORDER_STATUS_TRANSITION_FAILED_MESSAGE =
+        "Order status transition %s -> %s affected %d row(s) instead of 1 for order id %s. " +
+        "The expected status guard was likely not satisfied (order was already moved by " +
+        "another transaction), so the transition was rejected.";
+
     private final OrderRepository orderRepository;
     private final InventoryService inventoryService;
     private final ProductService productService;
@@ -245,10 +250,10 @@ public class OrderService {
 
     @Transactional
     public void checkReadyOrderAndPushToOutbox() {
-        List<UUID> listReadyOrder = orderRepository.getReadyPendingOrderIdsForProcess();
+        List<UUID> readyOrderIds = orderRepository.getReadyPendingOrderIdsForProcess();
         List<UUID> chunked = new ArrayList<>();
 
-        for (UUID readyOrder : listReadyOrder) {
+        for (UUID readyOrder : readyOrderIds) {
             chunked.add(readyOrder);
 
              if (chunked.size() == 100) {
@@ -274,6 +279,12 @@ public class OrderService {
         OrderReadyProcessDto orderReadyProcess =
             orderRepository.getReadyProcessOrder(orderData.getEntityId())
                 .orElseThrow(() -> new EntityNotFoundException("Order not found"));
+
+        // Order berada pada status PROCESSING sejak diklaim oleh
+        // getReadyPendingOrderIdsForProcess(), dan tetap PROCESSING selama transaksi ini karena
+        // getReadyProcessOrder() memegang lock FOR UPDATE. Semua transisi di bawah ini
+        // menggunakan PROCESSING sebagai status asal.
+        OrderStatusEnum currentStatus = OrderStatusEnum.PROCESSING;
 
         BigDecimal totalSubtotal = BigDecimal.ZERO;
         boolean mutationHasError = false;
@@ -318,13 +329,58 @@ public class OrderService {
                 )
             );
 
-            orderRepository.updateOrderStatus(orderReadyProcess.getId(), OrderStatusEnum.CANCELLED);
+            transitionOrderStatus(
+                orderReadyProcess.getId(),
+                currentStatus,
+                OrderStatusEnum.CANCELLED
+            );
             return;
         }
 
         if (mutationFreeze) {
-            orderRepository.updateOrderStatus(orderReadyProcess.getId(), OrderStatusEnum.PENDING);
+            // Kembalikan ke PENDING agar dicoba lagi pada siklus berikutnya setelah inventory
+            // tidak lagi freeze. `return` wajib: tanpa ini status PENDING akan langsung ditimpa
+            // oleh transisi RESERVED di bawah, dan guard status akan menolaknya.
+            transitionOrderStatus(
+                orderReadyProcess.getId(),
+                currentStatus,
+                OrderStatusEnum.PENDING
+            );
+            return;
         }
-        orderRepository.updateOrderStatus(orderReadyProcess.getId(), OrderStatusEnum.RESERVED);
+
+        transitionOrderStatus(
+            orderReadyProcess.getId(),
+            currentStatus,
+            OrderStatusEnum.RESERVED
+        );
+    }
+
+    /**
+     * Transisi status order dengan guard status asal.
+     *
+     * <p>Melempar {@link IllegalStateException} bila guard tidak terpenuhi (0 atau lebih dari 1
+     * baris ter-update). Exception tersebut akan me-rollback transaksi pemanggil, sehingga
+     * operasi lain dalam transaksi yang sama (refund, mutasi inventory, outbox) ikut dibatalkan
+     * dan order tidak ditinggalkan dalam status setengah jadi.
+     */
+    private void transitionOrderStatus(
+        UUID orderId,
+        OrderStatusEnum expectedStatus,
+        OrderStatusEnum newStatus
+    ) {
+        int updatedRows = orderRepository.updateOrderStatus(orderId, newStatus, expectedStatus);
+
+        if (updatedRows != 1) {
+            throw new IllegalStateException(
+                String.format(
+                    ORDER_STATUS_TRANSITION_FAILED_MESSAGE,
+                    expectedStatus,
+                    newStatus,
+                    updatedRows,
+                    orderId
+                )
+            );
+        }
     }
 }
