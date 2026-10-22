@@ -1,0 +1,23 @@
+
+Sementara `InventoryRepository` konsisten memakai suffix `*_change`
+(`il.reserved_quantity_change`).
+
+## Alasan (Reasoning)
+Satu dari dua penamaan itu pasti tidak ada di tabel. Secara desain (lihat `UserBalanceLog` yang
+menyimpan *perubahan* saldo, mis. `balanceChange`/`reservedBalanceChange`) yang benar adalah
+`*_change`. Akibatnya query akan gagal `SQLGrammarException`:
+`column ubl.reserved_balance does not exist` -> seluruh transaksi cancel/finish order rollback.
+Selain itu `cancelOrder` memakai guard `type = 'ORDER_CANCELLED'` + `NOT EXISTS (... 'ORDER_RESERVED','ORDER_SHIPPED')`;
+bila cancel dan reserve menulis `reference_id` yang sama, guard ini membuat update **tidak pernah**
+terjadi (kebalikan dari pola di `InventoryRepository`). Tanda (`+/-`) `balance_change` pada alur
+cancel juga perlu dipastikan.
+
+## Solusi (High Level)
+1. Samakan nama kolom dengan mapping entity (kemungkinan besar `balance_change` &
+   `reserved_balance_change`) di semua klausa `SET` **dan** `WHERE`.
+2. Tetapkan satu pola guard idempotensi dan pakai konsisten di `cancelOrder` + `finishOrder`.
+3. Tambahkan integration test (Testcontainers) yang benar-benar mengeksekusi kedua query ini.
+
+## Dampak
+Cancel/finish order gagal total (500) atau, bila kolomnya ternyata ada, saldo user tidak pernah
+dilepas/terpotong sehingga dana user "nyangkut" dan tidak bisa direkonsiliasi.
