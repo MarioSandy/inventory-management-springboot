@@ -29,33 +29,11 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
 
     private final ObjectMapper objectMapper;
 
-    /**
-     * Memilih order detail dari order berstatus ORDER_RESERVED untuk variant tertentu yang harus
-     * dibatalkan karena stok kurang, lalu menandainya cancelled = TRUE.
-     *
-     * <p>Urutan pembatalan: order TERBARU dibatalkan lebih dulu, sehingga order terlama tetap
-     * mempertahankan alokasinya (fairness untuk order yang lebih awal).
-     *
-     * <p>Catatan implementasi:
-     * <ul>
-     *   <li>Window function diletakkan di dalam CTE karena PostgreSQL menolak
-     *       {@code FOR UPDATE} pada level query yang memakai window function.</li>
-     *   <li>{@code order} adalah reserved keyword sehingga wajib di-quote: {@code "order"}.</li>
-     *   <li>CTE memilih {@code od.id} (bukan {@code o.id}) agar join ke {@code selected}
-     *       membandingkan kolom yang setara.</li>
-     *   <li>Tie-breaker {@code o.id, od.id} dipakai supaya urutan window deterministik saat
-     *       {@code created_at} kembar.</li>
-     *   <li>{@code @Transactional} diperlukan agar lock {@code FOR UPDATE OF od} tetap mengikat
-     *       sampai statement {@code UPDATE} berikutnya selesai.</li>
-     * </ul>
-     */
     @Transactional
     public List<OrderDetailCancelResponseDto> cancelOrderDetail(
         UUID productVariantId,
         int shortage
     ) {
-        // Window function ada di dalam CTE supaya level terluar bebas dari window function
-        // dan boleh memakai FOR UPDATE.
         Query selectQuery = entityManager.createNativeQuery(
             """
             WITH order_item_counted AS (
@@ -110,8 +88,6 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
             );
         }
 
-        // Tidak ada yang perlu dibatalkan: jangan eksekusi UPDATE dengan list kosong,
-        // karena "WHERE id IN ()" bukan SQL yang valid.
         if (listOrderDetailIds.isEmpty()) {
             return listOrderDetailCancel;
         }
