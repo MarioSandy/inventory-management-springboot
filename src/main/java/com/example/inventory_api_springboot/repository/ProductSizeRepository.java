@@ -13,16 +13,16 @@ import java.util.List;
 import java.util.Optional;
 
 public interface ProductSizeRepository extends JpaRepository<ProductSize, String> {
-    public Optional<ProductSize> findById(@Param("size") String id);
+    public Optional<ProductSize> findBySize(String size);
 
     @Transactional
     @Modifying
     @Query(value =
-            "UPDATE product_size " +
-                    "   SET deleted_at = null, " +
-                    "       updated_at = NOW() " +
-                    "WHERE size = :size",
-            nativeQuery = true
+        "UPDATE product_size " +
+        "   SET deleted_at = null, " +
+        "       updated_at = NOW() " +
+        "WHERE size = :size",
+        nativeQuery = true
     )
     int restoreById(@Param("size") String id);
 

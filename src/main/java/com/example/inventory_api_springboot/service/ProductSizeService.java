@@ -7,7 +7,6 @@ import com.example.inventory_api_springboot.repository.ProductSizeRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -64,7 +63,7 @@ public class ProductSizeService {
 
     public ResponseEntity deleteProductSize(String id) {
         ProductSize productSize =
-            productSizeRepository.findById(id)
+            productSizeRepository.findBySize(id)
                 .orElseThrow(() -> new EntityNotFoundException("Product size not found"));
 
         productSize.setDeletedAt(LocalDateTime.now());
