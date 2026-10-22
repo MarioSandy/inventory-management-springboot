@@ -158,11 +158,6 @@ public class OrderService {
         UUID id,
         UUID userId
     ) {
-        // Lock parent lebih dulu (query tanpa join -> aman untuk FOR UPDATE), lalu biarkan
-        // listOrderDetails dimuat lazy di dalam transaksi yang sama. Memakai
-        // findWithDetailsByIdAndStatus (EntityGraph -> LEFT OUTER JOIN) sekaligus dengan lock
-        // akan gagal di PostgreSQL: "FOR UPDATE cannot be applied to the nullable side of an
-        // outer join".
         Order order = orderRepository.findByIdAndStatus(id, OrderStatusEnum.RESERVED)
             .orElseThrow(() -> new EntityNotFoundException("Order not found"));
 
@@ -280,10 +275,6 @@ public class OrderService {
             orderRepository.getReadyProcessOrder(orderData.getEntityId())
                 .orElseThrow(() -> new EntityNotFoundException("Order not found"));
 
-        // Order berada pada status PROCESSING sejak diklaim oleh
-        // getReadyPendingOrderIdsForProcess(), dan tetap PROCESSING selama transaksi ini karena
-        // getReadyProcessOrder() memegang lock FOR UPDATE. Semua transisi di bawah ini
-        // menggunakan PROCESSING sebagai status asal.
         OrderStatusEnum currentStatus = OrderStatusEnum.PROCESSING;
 
         BigDecimal totalSubtotal = BigDecimal.ZERO;
@@ -338,9 +329,6 @@ public class OrderService {
         }
 
         if (mutationFreeze) {
-            // Kembalikan ke PENDING agar dicoba lagi pada siklus berikutnya setelah inventory
-            // tidak lagi freeze. `return` wajib: tanpa ini status PENDING akan langsung ditimpa
-            // oleh transisi RESERVED di bawah, dan guard status akan menolaknya.
             transitionOrderStatus(
                 orderReadyProcess.getId(),
                 currentStatus,
@@ -356,14 +344,6 @@ public class OrderService {
         );
     }
 
-    /**
-     * Transisi status order dengan guard status asal.
-     *
-     * <p>Melempar {@link IllegalStateException} bila guard tidak terpenuhi (0 atau lebih dari 1
-     * baris ter-update). Exception tersebut akan me-rollback transaksi pemanggil, sehingga
-     * operasi lain dalam transaksi yang sama (refund, mutasi inventory, outbox) ikut dibatalkan
-     * dan order tidak ditinggalkan dalam status setengah jadi.
-     */
     private void transitionOrderStatus(
         UUID orderId,
         OrderStatusEnum expectedStatus,
