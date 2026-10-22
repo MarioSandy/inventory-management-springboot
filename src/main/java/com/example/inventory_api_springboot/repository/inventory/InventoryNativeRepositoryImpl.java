@@ -78,9 +78,10 @@ public class InventoryNativeRepositoryImpl implements InventoryNativeRepository 
     ) {
         String queryInventory =
             "UPDATE inventory " +
-            "   SET quantity = ?," +
+            "   SET quantity = ?, " +
             "       updated_at = CURRENT_TIMESTAMP " +
-            "WHERE product_variant_id = ? ";
+            "WHERE product_variant_id = ? " +
+            "   AND \"freeze\" = TRUE ";
 
         int[][] resultInventory = jdbcTemplate.batchUpdate(
             queryInventory,
