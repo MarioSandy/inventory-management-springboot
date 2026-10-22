@@ -5,14 +5,15 @@ import com.example.inventory_api_springboot.projection.OutboxPendingTriggerProje
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.bind.annotation.PathVariable;
 
 import java.util.List;
 import java.util.UUID;
 
 public interface OutboxRepository extends JpaRepository<Outbox, UUID> {
 
+    @Transactional
     @Query(
         value =
             "UPDATE outbox SET " +
@@ -45,9 +46,10 @@ public interface OutboxRepository extends JpaRepository<Outbox, UUID> {
         "   lockedAt = NULL " +
         "WHERE id = :id "
     )
-    public void updateStatusSuccessDispatch(@PathVariable("id") UUID id);
+    public int updateStatusSuccessDispatch(@Param("id") UUID id);
 
     @Modifying
+    @Transactional
     @Query(
         "UPDATE Outbox SET " +
         "   status = 'PENDING', " +
@@ -57,9 +59,10 @@ public interface OutboxRepository extends JpaRepository<Outbox, UUID> {
         "   error = :error " +
         "WHERE id = :id "
     )
-    public void updateStatusForRetryDispatch(@PathVariable("id") UUID id, @PathVariable("error") String error);
+    public int updateStatusForRetryDispatch(@Param("id") UUID id, @Param("error") String error);
 
     @Modifying
+    @Transactional
     @Query(
         "UPDATE Outbox SET " +
         "   status = 'DISPATCH_FAILED', " +
@@ -68,5 +71,5 @@ public interface OutboxRepository extends JpaRepository<Outbox, UUID> {
         "   error = :error " +
         "WHERE id = :id "
     )
-    public void updateStatusFailedDispatch(@PathVariable("id") UUID id, @PathVariable("error") String error);
+    public int updateStatusFailedDispatch(@Param("id") UUID id, @Param("error") String error);
 }
