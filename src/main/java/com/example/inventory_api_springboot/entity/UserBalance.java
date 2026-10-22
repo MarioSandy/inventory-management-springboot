@@ -14,6 +14,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -47,18 +49,61 @@ public class UserBalance {
     private User user;
 
     public void mutateBalances(BigDecimal changeBalance, BigDecimal changeReservedBalance) {
-        BigDecimal newBalance = this.balance.add(changeBalance);
-        BigDecimal newReservedBalance = this.reservedBalance.add(changeReservedBalance);
-
-        // The business rule explicitly stated:
-        BigDecimal availableBalance = newBalance.subtract(newReservedBalance);
-        if (availableBalance.signum() < 0) {
-            throw new IllegalArgumentException(
-                String.format("Insufficient balance! Available balance cannot drop below zero. (Calculated: " + availableBalance.toPlainString() + ")")
+        if (this.balance == null || this.reservedBalance == null) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "User balance state is not initialized (balance and reserved balance must not be null)."
             );
         }
 
-        // Apply if valid
+        if (changeBalance == null || changeReservedBalance == null) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Balance change and reserved balance change must not be null."
+            );
+        }
+
+        BigDecimal newBalance = this.balance.add(changeBalance);
+        BigDecimal newReservedBalance = this.reservedBalance.add(changeReservedBalance);
+
+        if (newBalance.signum() < 0) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                String.format(
+                    "Balance cannot be negative. (balanceBefore=%s, balanceChange=%s, balanceAfter=%s)",
+                    this.balance.toPlainString(),
+                    changeBalance.toPlainString(),
+                    newBalance.toPlainString()
+                )
+            );
+        }
+
+        if (newReservedBalance.signum() < 0) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                String.format(
+                    "Reserved balance cannot be negative. (reservedBalanceBefore=%s, reservedBalanceChange=%s, reservedBalanceAfter=%s)",
+                    this.reservedBalance.toPlainString(),
+                    changeReservedBalance.toPlainString(),
+                    newReservedBalance.toPlainString()
+                )
+            );
+        }
+
+        BigDecimal availableBalance = newBalance.subtract(newReservedBalance);
+        if (availableBalance.signum() < 0) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                String.format(
+                    "Insufficient balance! Available balance cannot drop below zero. " +
+                    "(balanceAfter=%s, reservedBalanceAfter=%s, availableBalance=%s)",
+                    newBalance.toPlainString(),
+                    newReservedBalance.toPlainString(),
+                    availableBalance.toPlainString()
+                )
+            );
+        }
+
         this.balance = newBalance;
         this.reservedBalance = newReservedBalance;
     }
