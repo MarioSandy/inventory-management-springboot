@@ -178,22 +178,4 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
 
         return query.getResultList();
     }
-
-    private UUID toUuid(Object returnedRow) {
-        if (returnedRow instanceof UUID uuid) {
-            return uuid;
-        }
-
-        if (returnedRow instanceof Object[] columns && columns.length > 0) {
-            Object firstColumn = columns[0];
-
-            if (firstColumn instanceof UUID uuid) {
-                return uuid;
-            }
-
-            return UUID.fromString(firstColumn.toString());
-        }
-
-        return UUID.fromString(returnedRow.toString());
-    }
 }
