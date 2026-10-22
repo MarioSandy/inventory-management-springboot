@@ -7,6 +7,8 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.Query;
 import lombok.RequiredArgsConstructor;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
@@ -15,7 +17,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
 public class OrderNativeRepositoryImpl implements OrderNativeRepository {
@@ -92,6 +93,7 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
         return listOrderDetailCancel;
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
     public Optional<OrderReadyProcessDto> getReadyProcessOrder(UUID id) {
         Query query = entityManager.createNativeQuery(
             "WITH locked AS (" +
@@ -146,6 +148,7 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
         );
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
     public List<UUID> getReadyPendingOrderIdsForProcess() {
         Query query = entityManager.createNativeQuery(
             "SELECT id " +
@@ -174,11 +177,23 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
             "UPDATE \"order\" " +
             "   SET status = 'PROCESSING' " +
             "WHERE id IN :orderIds " +
-            "RETURNING id ",
-            UUID.class
+            "   AND status = 'PENDING' "
         );
 
         query.setParameter("orderIds", listOrderIds);
-        return query.getResultList();
+        int updatedRows = query.executeUpdate();
+
+        if (updatedRows != listOrderIds.size()) {
+            throw new IllegalStateException(
+                String.format(
+                    "Order claim affected %d row(s) but %d order id(s) were locked. " +
+                    "The status guard (status = 'PENDING') was likely not satisfied for some ids.",
+                    updatedRows,
+                    listOrderIds.size()
+                )
+            );
+        }
+
+        return listOrderIds;
     }
 }
