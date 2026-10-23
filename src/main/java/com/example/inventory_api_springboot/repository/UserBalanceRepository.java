@@ -51,18 +51,20 @@ public interface UserBalanceRepository extends JpaRepository<UserBalance, UUID> 
         value =
             "UPDATE user_balance ub " +
             "   SET balance = ub.balance - ubl.balance_change, " +
-            "       reserved_balance = ub.reserved_balance - ubl.reserved_balance_change " +
+            "       reserved_balance = ub.reserved_balance - ubl.reserved_balance_change, " +
+            "       updated_at = CURRENT_TIMESTAMP " +
             "FROM user_balance_log ubl " +
             "WHERE ub.user_id = ubl.user_id " +
             "   AND ubl.reference_id = :referenceId " +
-            "   AND ubl.type = 'ORDER_CANCELLED' " +
-            "   AND ub.balance - ubl.balance >= 0 " +
-            "   AND ub.reserved_balance - ubl.reserved_balance >= 0 " +
+            "   AND ubl.type = 'ORDER_RESERVED' " +
+            "   AND ubl.reserved_balance_change IS NOT NULL " +
+            "   AND ub.balance - ubl.balance_change >= 0 " +
+            "   AND ub.reserved_balance - ubl.reserved_balance_change >= 0 " +
             "   AND NOT EXISTS (" +
             "       SELECT 1 " +
             "       FROM user_balance_log ubl2 " +
-            "       WHERE ubl2.reference_id = ubl.reference_id " +
-            "           AND ubl2.type IN ('ORDER_RESERVED', 'ORDER_SHIPPED') " +
+            "       WHERE ubl2.reference_id = :referenceId " +
+            "           AND ubl2.type IN ('ORDER_CANCELLED', 'ORDER_SHIPPED') " +
             "   ) ",
         nativeQuery = true
     )
