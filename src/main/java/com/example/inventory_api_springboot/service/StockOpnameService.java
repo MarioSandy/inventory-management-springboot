@@ -320,7 +320,7 @@ public class StockOpnameService {
         UUID stockOpnameReviewId,
         UUID userId
     ) {
-        StockOpnameReview stockOpnameReview =
+         StockOpnameReview stockOpnameReview =
             stockOpnameReviewRepository.findForUpdateById(stockOpnameReviewId)
                 .orElseThrow(() -> new EntityNotFoundException("No Stock Opname Review found"));
 
