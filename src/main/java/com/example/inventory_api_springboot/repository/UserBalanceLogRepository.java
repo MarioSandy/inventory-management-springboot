@@ -54,20 +54,29 @@ public interface UserBalanceLogRepository extends JpaRepository<UserBalanceLog, 
         value =
             "INSERT INTO user_balance_log ( " +
             "   user_id, " +
-            "   balance, " +
-            "   reserved_balance, " +
+            "   balance_before, " +
+            "   balance_after, " +
+            "   balance_change, " +
+            "   reserved_balance_before, " +
+            "   reserved_balance_after, " +
+            "   reserved_balance_change, " +
             "   type, " +
             "   reference_id " +
             ") " +
-            "SELECT user_id, " +
-            "       balance * -1 AS balance, " +
-            "       reserved_balance * -1 AS reserved_balance, " +
+            "SELECT ubl.user_id, " +
+            "       ubl.balance_after - ubl.reserved_balance_change AS balance_before, " +
+            "       ubl.balance_after - ubl.reserved_balance_change AS balance_after, " +
+            "       ubl.reserved_balance_change * -1 AS balance_change, " +
+            "       ubl.reserved_balance_after AS reserved_balance_before, " +
+            "       ubl.reserved_balance_after - ubl.reserved_balance_change AS reserved_balance_after, " +
+            "       ubl.reserved_balance_change * -1 AS reserved_balance_change, " +
             "       CAST(:#{#type.name()} AS user_balance_log_type_enum) AS type, " +
-            "       reference_id " +
+            "       ubl.reference_id " +
             "FROM user_balance_log ubl " +
-            "WHERE reference_id = :referenceId " +
-            "   AND type = 'ORDER_RESERVED'" +
-            "   AND NOT EXISTS (" +
+            "WHERE ubl.reference_id = :referenceId " +
+            "   AND ubl.type = 'ORDER_RESERVED' " +
+            "   AND ubl.reserved_balance_change IS NOT NULL " +
+            "   AND NOT EXISTS ( " +
             "       SELECT 1 " +
             "       FROM user_balance_log ubl2 " +
             "       WHERE ubl2.reference_id = ubl.reference_id " +
