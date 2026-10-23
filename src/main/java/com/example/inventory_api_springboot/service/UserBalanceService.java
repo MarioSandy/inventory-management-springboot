@@ -97,6 +97,23 @@ public class UserBalanceService {
                     )
                 );
 
+        mutation(orderId, userId, type, reservedAmount);
+    }
+
+    @Transactional
+    public void mutation(
+        UUID orderId,
+        UUID userId,
+        UserBalanceLogTypeEnum type,
+        BigDecimal reservedAmount
+    ) {
+        if (reservedAmount == null || reservedAmount.signum() <= 0)
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Order " + orderId + " has no reserved balance to settle " +
+                "(reservedAmount=" + reservedAmount + ")"
+            );
+
         UserBalance userBalance =
             userBalanceRepository.findWithLockByUserId(userId)
                 .orElseThrow(() -> new EntityNotFoundException("User balance not found"));
