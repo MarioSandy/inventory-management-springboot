@@ -113,6 +113,7 @@ public class OrderService {
                 .quantity(orderDetailData.quantity())
                 .unitPrice(currentProductPrice.price())
                 .subTotal(currentSubTotal)
+                .cancelled(false)
                 .build();
 
             listOrderDetail.add(orderDetail);
@@ -142,10 +143,9 @@ public class OrderService {
         Order order = orderRepository.findByIdAndStatus(id, OrderStatusEnum.PENDING)
                 .orElseThrow(() -> new EntityNotFoundException("Order not found"));
 
-        order.setStatus(OrderStatusEnum.CANCELLED);
-
         userBalanceService.mutation(
             id,
+            order.getUser().getId(),
             UserBalanceLogTypeEnum.ORDER_CANCELLED
         );
 
@@ -154,6 +154,12 @@ public class OrderService {
 //            InventoryLogTypeEnum.ORDER_CANCELLED,
 //            userId
 //        );
+
+        transitionOrderStatus(
+            id,
+            OrderStatusEnum.PENDING,
+            OrderStatusEnum.CANCELLED
+        );
 
         return ResponseEntity.ok("Order cancelled successfully");
     }
@@ -166,11 +172,26 @@ public class OrderService {
         Order order = orderRepository.findByIdAndStatus(id, OrderStatusEnum.RESERVED)
             .orElseThrow(() -> new EntityNotFoundException("Order not found"));
 
-        order.setStatus(OrderStatusEnum.COMPLETED);
+        List<OrderDetail> listActiveOrderDetail =
+            order.getListOrderDetails().stream()
+                .filter(Objects::nonNull)
+                .filter(orderDetail -> !Boolean.TRUE.equals(orderDetail.getCancelled()))
+                .collect(Collectors.toList());
+
+        if (listActiveOrderDetail.isEmpty())
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Order " + id + " has no active (non-cancelled) order detail to finish"
+            );
+
+        BigDecimal reservedAmount =
+            listActiveOrderDetail.stream()
+                .map(OrderDetail::getSubTotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         List<Inventory> listInventory =
             inventoryService.findAllForUpdateByProductVariantIdInAndFreeze(
-                order.getListOrderDetails().stream()
+                listActiveOrderDetail.stream()
                     .map(OrderDetail::getProductVariant)
                     .filter(Objects::nonNull)
                     .map(ProductVariant::getId)
@@ -179,12 +200,17 @@ public class OrderService {
             );
         List<InventoryLog> listInventoryLog = new ArrayList<>();
 
+        // Only consume the reserved balance for the still-active details. Cancelled
+        // details (e.g. from stock opname shortage resolution) have already had their
+        // reservation refunded, so settling them again would over-charge the user.
         userBalanceService.mutation(
             id,
-            UserBalanceLogTypeEnum.ORDER_SHIPPED
+            order.getUser().getId(),
+            UserBalanceLogTypeEnum.ORDER_SHIPPED,
+            reservedAmount
         );
 
-        for (OrderDetail orderDetail : order.getListOrderDetails()) {
+        for (OrderDetail orderDetail : listActiveOrderDetail) {
 //            inventoryService.mutation(
 //                orderDetail.getId(),
 //                InventoryLogTypeEnum.ORDER_SHIPPED,
@@ -227,7 +253,12 @@ public class OrderService {
 
         inventoryService.saveAll(listInventory);
         inventoryService.saveAllLog(listInventoryLog);
-        orderRepository.save(order);
+
+        transitionOrderStatus(
+            id,
+            OrderStatusEnum.RESERVED,
+            OrderStatusEnum.COMPLETED
+        );
 
         return ResponseEntity.ok("Order finished successfully");
     }

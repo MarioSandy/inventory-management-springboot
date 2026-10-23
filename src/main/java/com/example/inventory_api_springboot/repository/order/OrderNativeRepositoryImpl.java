@@ -14,8 +14,10 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @RequiredArgsConstructor
@@ -45,15 +47,16 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
                 FROM "order" o
                 JOIN order_detail od
                     ON od.order_id = o.id
-                WHERE o.status = 'ORDER_RESERVED'
+                WHERE o.status = 'RESERVED'
                     AND od.product_variant_id = :productVariantId
-                    AND od.cancelled = FALSE
+                    AND od.cancelled IS NOT TRUE
             ), selected AS (
                 SELECT id
                 FROM order_item_counted
                 WHERE cumulative_reserved - quantity < :shortage
             )
             SELECT od.id,
+                   o.id AS order_id,
                    o.user_id,
                    od.quantity,
                    od.sub_total
@@ -73,18 +76,22 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
 
         List<OrderDetailCancelResponseDto> listOrderDetailCancel = new ArrayList<>(returnedList.size());
         List<UUID> listOrderDetailIds = new ArrayList<>(returnedList.size());
+        Set<UUID> affectedOrderIds = new LinkedHashSet<>(returnedList.size());
 
         for (Object[] currentReturnedList : returnedList) {
             UUID currentOrderDetailId = (UUID) currentReturnedList[0];
+            UUID currentOrderId = (UUID) currentReturnedList[1];
 
             listOrderDetailIds.add(currentOrderDetailId);
+            affectedOrderIds.add(currentOrderId);
 
             listOrderDetailCancel.add(
                 new OrderDetailCancelResponseDto(
                     currentOrderDetailId,
-                    (UUID) currentReturnedList[1],
-                    (int) currentReturnedList[2],
-                    (BigDecimal) currentReturnedList[3]
+                    currentOrderId,
+                    (UUID) currentReturnedList[2],
+                    (int) currentReturnedList[3],
+                    (BigDecimal) currentReturnedList[4]
                 )
             );
         }
@@ -113,6 +120,27 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
                 )
             );
         }
+
+        // Runs after the detail update in the same transaction, so NOT EXISTS already
+        // sees the rows just flagged as cancelled. Orders that still have at least one
+        // active detail are left untouched.
+        Query cancelOrderWithoutActiveDetailQuery = entityManager.createNativeQuery(
+            """
+            UPDATE "order" o
+               SET status = 'CANCELLED'
+            WHERE o.id IN :orderIds
+               AND o.status = 'RESERVED'
+               AND NOT EXISTS (
+                   SELECT 1
+                   FROM order_detail od
+                   WHERE od.order_id = o.id
+                       AND od.cancelled IS NOT TRUE
+               )
+            """
+        );
+
+        cancelOrderWithoutActiveDetailQuery.setParameter("orderIds", new ArrayList<>(affectedOrderIds));
+        cancelOrderWithoutActiveDetailQuery.executeUpdate();
 
         return listOrderDetailCancel;
     }

@@ -8,9 +8,22 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface UserBalanceLogRepository extends JpaRepository<UserBalanceLog, UUID> {
+    @Query(
+        "SELECT SUM(ubl.reservedBalanceChange) " +
+        "FROM UserBalanceLog ubl " +
+        "WHERE ubl.referenceId = :referenceId " +
+        "   AND ubl.type = :type "
+    )
+    Optional<BigDecimal> sumReservedBalanceChange(
+        @Param("referenceId") UUID referenceId,
+        @Param("type") UserBalanceLogTypeEnum type
+    );
+
     @Transactional
     @Modifying
     @Query(
@@ -26,26 +39,31 @@ public interface UserBalanceLogRepository extends JpaRepository<UserBalanceLog, 
             "   type, " +
             "   reference_id " +
             ") " +
-            "SELECT user_id, " +
-            "       balance" +
-            "       balance_change * -1 AS balance_change, " +
-            "       reserved_balance_change * -1 AS reserved_balance_change, " +
-            "       CAST(:#{#type.name()} AS user_balance_log_type_enum) AS type, " +
-            "       reference_id " +
-            "FROM user_balance_log ubl " +
-            "WHERE reference_id = :referenceId " +
-            "   AND type = 'ORDER_RESERVED'" +
-            "   AND NOT EXISTS (" +
-            "       SELECT 1 " +
-            "       FROM user_balance_log ubl2 " +
-            "       WHERE ubl2.reference_id = ubl.reference_id " +
-            "           AND ubl2.type IN ('ORDER_CANCELLED', 'ORDER_SHIPPED') " +
-            "   ) ",
+            "SELECT " +
+            "   :userId, " +
+            "   :balanceBefore, " +
+            "   :balanceAfter, " +
+            "   CAST(:balanceAfter AS numeric) - CAST(:balanceBefore AS numeric), " +
+            "   :reservedBalanceBefore, " +
+            "   :reservedBalanceAfter, " +
+            "   CAST(:reservedBalanceAfter AS numeric) - CAST(:reservedBalanceBefore AS numeric), " +
+            "   CAST('ORDER_CANCELLED' AS user_balance_log_type_enum), " +
+            "   :referenceId " +
+            "WHERE NOT EXISTS ( " +
+            "   SELECT 1 " +
+            "   FROM user_balance_log ubl " +
+            "   WHERE ubl.reference_id = :referenceId " +
+            "       AND ubl.type IN ('ORDER_CANCELLED', 'ORDER_SHIPPED') " +
+            ") ",
         nativeQuery = true
     )
     int insertReversedLog(
-        @Param("referenceId") UUID referenceId,
-        @Param("type") UserBalanceLogTypeEnum type
+        @Param("userId") UUID userId,
+        @Param("balanceBefore") BigDecimal balanceBefore,
+        @Param("balanceAfter") BigDecimal balanceAfter,
+        @Param("reservedBalanceBefore") BigDecimal reservedBalanceBefore,
+        @Param("reservedBalanceAfter") BigDecimal reservedBalanceAfter,
+        @Param("referenceId") UUID referenceId
     );
 
     @Transactional
@@ -54,29 +72,39 @@ public interface UserBalanceLogRepository extends JpaRepository<UserBalanceLog, 
         value =
             "INSERT INTO user_balance_log ( " +
             "   user_id, " +
-            "   balance, " +
-            "   reserved_balance, " +
+            "   balance_before, " +
+            "   balance_after, " +
+            "   balance_change, " +
+            "   reserved_balance_before, " +
+            "   reserved_balance_after, " +
+            "   reserved_balance_change, " +
             "   type, " +
             "   reference_id " +
             ") " +
-            "SELECT user_id, " +
-            "       balance * -1 AS balance, " +
-            "       reserved_balance * -1 AS reserved_balance, " +
-            "       CAST(:#{#type.name()} AS user_balance_log_type_enum) AS type, " +
-            "       reference_id " +
-            "FROM user_balance_log ubl " +
-            "WHERE reference_id = :referenceId " +
-            "   AND type = 'ORDER_RESERVED'" +
-            "   AND NOT EXISTS (" +
-            "       SELECT 1 " +
-            "       FROM user_balance_log ubl2 " +
-            "       WHERE ubl2.reference_id = ubl.reference_id " +
-            "           AND ubl2.type IN ('ORDER_CANCELLED', 'ORDER_SHIPPED') " +
-            "   ) ",
+            "SELECT " +
+            "   :userId, " +
+            "   :balanceBefore, " +
+            "   :balanceAfter, " +
+            "   CAST(:balanceAfter AS numeric) - CAST(:balanceBefore AS numeric), " +
+            "   :reservedBalanceBefore, " +
+            "   :reservedBalanceAfter, " +
+            "   CAST(:reservedBalanceAfter AS numeric) - CAST(:reservedBalanceBefore AS numeric), " +
+            "   CAST('ORDER_SHIPPED' AS user_balance_log_type_enum), " +
+            "   :referenceId " +
+            "WHERE NOT EXISTS ( " +
+            "   SELECT 1 " +
+            "   FROM user_balance_log ubl " +
+            "   WHERE ubl.reference_id = :referenceId " +
+            "       AND ubl.type IN ('ORDER_CANCELLED', 'ORDER_SHIPPED') " +
+            ") ",
         nativeQuery = true
     )
     int insertSwitchedLog(
-        @Param("referenceId") UUID referenceId,
-        @Param("type") UserBalanceLogTypeEnum type
+        @Param("userId") UUID userId,
+        @Param("balanceBefore") BigDecimal balanceBefore,
+        @Param("balanceAfter") BigDecimal balanceAfter,
+        @Param("reservedBalanceBefore") BigDecimal reservedBalanceBefore,
+        @Param("reservedBalanceAfter") BigDecimal reservedBalanceAfter,
+        @Param("referenceId") UUID referenceId
     );
 }

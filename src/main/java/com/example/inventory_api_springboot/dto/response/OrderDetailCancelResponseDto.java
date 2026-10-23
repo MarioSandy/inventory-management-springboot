@@ -5,7 +5,8 @@ import java.util.UUID;
 
 public record OrderDetailCancelResponseDto (
     UUID orderDetailId,
-   UUID userId,
-   int cancelledQuantity,
-   BigDecimal cancelledSubTotal
+    UUID orderId,
+    UUID userId,
+    int cancelledQuantity,
+    BigDecimal cancelledSubTotal
 ) {}
