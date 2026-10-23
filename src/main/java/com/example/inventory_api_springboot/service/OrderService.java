@@ -113,6 +113,7 @@ public class OrderService {
                 .quantity(orderDetailData.quantity())
                 .unitPrice(currentProductPrice.price())
                 .subTotal(currentSubTotal)
+                .cancelled(false)
                 .build();
 
             listOrderDetail.add(orderDetail);
