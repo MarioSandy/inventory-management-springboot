@@ -45,12 +45,12 @@ public class CLISeeder implements CommandLineRunner {
                 Map<String, ProductSize> productSizes = productSizeSeeder.seedDatabase();
                 Map<String, ProductCategory> productCategories = productCategorySeeder.seedDatabase();
 
-//                productSeeder.seedProducts(
-//                    productCategories,
-//                    productBrands,
-//                    productColors,
-//                    productSizes
-//                );
+                productSeeder.seedProducts(
+                    productCategories,
+                    productBrands,
+                    productColors,
+                    productSizes
+                );
 
                 userSeeder.seedDatabase();
 

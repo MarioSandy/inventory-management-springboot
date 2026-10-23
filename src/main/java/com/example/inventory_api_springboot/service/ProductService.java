@@ -31,6 +31,7 @@ import org.apache.poi.ss.usermodel.DataValidationConstraint;
 import org.apache.poi.ss.usermodel.DataValidationHelper;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.SheetVisibility;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.util.CellRangeAddressList;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -232,9 +233,9 @@ public class ProductService {
         }
 
         // 4. Secure the sheet
-//        sheet.protectSheet(UUID.randomUUID().toString().replace("-", "").substring(0, 10));
-//        int sheetIndex = workbook.getSheetIndex(sheetName);
-//        workbook.setSheetVisibility(sheetIndex, SheetVisibility.VERY_HIDDEN);
+        sheet.protectSheet(UUID.randomUUID().toString().replace("-", "").substring(0, 10));
+        int sheetIndex = workbook.getSheetIndex(sheetName);
+        workbook.setSheetVisibility(sheetIndex, SheetVisibility.VERY_HIDDEN);
     }
 
     private void addDropdownValidation(Sheet sheet, String formulaString, int startCol, int endCol, int lastRow) {

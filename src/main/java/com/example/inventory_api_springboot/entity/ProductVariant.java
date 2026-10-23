@@ -12,7 +12,6 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
-import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import lombok.AllArgsConstructor;
@@ -97,11 +96,6 @@ public class ProductVariant {
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
     private List<StockOpnameReview> listStockOpnameReview;
-
-    @OneToMany(mappedBy = "productVariant", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    @ToString.Exclude
-    @EqualsAndHashCode.Exclude
-    private List<PendingInventoryProcess> listPendingInventoryProcess;
 
     public String generateSku() {
         if (this.sku == null) {

@@ -204,6 +204,11 @@ public class InventoryService {
     }
 
     @Transactional
+    public void unfreezeInventory(UUID productVariantId) {
+        inventoryRepository.unfreezeInventory(productVariantId);
+    }
+
+    @Transactional
     public List<Inventory> findAllByProductVariantIdInAndFreeze(List<UUID> listProductVariantIds, boolean isFreeze) {
         return inventoryRepository.findAllByProductVariantIdInAndFreeze(listProductVariantIds, isFreeze);
     }
