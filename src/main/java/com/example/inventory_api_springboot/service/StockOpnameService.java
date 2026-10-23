@@ -342,7 +342,7 @@ public class StockOpnameService {
 
         stockOpnameReviewRepository.save(stockOpnameReview);
 
-        inventoryService.unfreezeInventories(Set.of(productVariantId));
+        inventoryService.unfreezeInventory(productVariantId);
 
         return ResponseEntity.ok("Inventory stock opname review rejected successfully");
     }
@@ -497,7 +497,7 @@ public class StockOpnameService {
 
         stockOpnameReviewRepository.save(stockOpnameReview);
 
-        inventoryService.unfreezeInventories(Set.of(productVariantId));
+        inventoryService.unfreezeInventory(productVariantId);
 
         return ResponseEntity.ok("Inventory stock opname review approved successfully");
     }

@@ -85,6 +85,15 @@ public interface InventoryRepository extends JpaRepository<Inventory, UUID>, Inv
     int unfreezeInventories(@Param("ids") Set<UUID> id);
 
     @Transactional
+    @Modifying
+    @Query(
+        "UPDATE Inventory " +
+        "   SET freeze = FALSE " +
+        "WHERE productVariantId = :id "
+    )
+    int unfreezeInventory(@Param("id") UUID productVariantId);
+
+    @Transactional
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<Inventory> findAllForUpdateByProductVariantIdInAndFreeze(Collection<UUID> listIds, boolean freeze);
 
