@@ -142,10 +142,9 @@ public class OrderService {
         Order order = orderRepository.findByIdAndStatus(id, OrderStatusEnum.PENDING)
                 .orElseThrow(() -> new EntityNotFoundException("Order not found"));
 
-        order.setStatus(OrderStatusEnum.CANCELLED);
-
         userBalanceService.mutation(
             id,
+            order.getUser().getId(),
             UserBalanceLogTypeEnum.ORDER_CANCELLED
         );
 
@@ -154,6 +153,12 @@ public class OrderService {
 //            InventoryLogTypeEnum.ORDER_CANCELLED,
 //            userId
 //        );
+
+        transitionOrderStatus(
+            id,
+            OrderStatusEnum.PENDING,
+            OrderStatusEnum.CANCELLED
+        );
 
         return ResponseEntity.ok("Order cancelled successfully");
     }
@@ -165,8 +170,6 @@ public class OrderService {
     ) {
         Order order = orderRepository.findByIdAndStatus(id, OrderStatusEnum.RESERVED)
             .orElseThrow(() -> new EntityNotFoundException("Order not found"));
-
-        order.setStatus(OrderStatusEnum.COMPLETED);
 
         List<Inventory> listInventory =
             inventoryService.findAllForUpdateByProductVariantIdInAndFreeze(
@@ -181,6 +184,7 @@ public class OrderService {
 
         userBalanceService.mutation(
             id,
+            order.getUser().getId(),
             UserBalanceLogTypeEnum.ORDER_SHIPPED
         );
 
@@ -227,7 +231,12 @@ public class OrderService {
 
         inventoryService.saveAll(listInventory);
         inventoryService.saveAllLog(listInventoryLog);
-        orderRepository.save(order);
+
+        transitionOrderStatus(
+            id,
+            OrderStatusEnum.RESERVED,
+            OrderStatusEnum.COMPLETED
+        );
 
         return ResponseEntity.ok("Order finished successfully");
     }
