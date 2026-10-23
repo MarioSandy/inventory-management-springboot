@@ -114,10 +114,6 @@ public class UserBalanceService {
                 );
             };
         BigDecimal reservedBalanceChange = reservedAmount.negate();
-
-        // mutateBalances validates the null state, rejects negative results and
-        // rejects a negative available balance, so balanceBefore/reservedBalanceBefore
-        // read above are guaranteed to be non-null past this point.
         userBalance.mutateBalances(balanceChange, reservedBalanceChange);
 
         BigDecimal balanceAfter = userBalance.getBalance();
