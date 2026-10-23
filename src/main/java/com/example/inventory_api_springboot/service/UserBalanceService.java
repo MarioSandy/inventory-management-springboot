@@ -57,7 +57,7 @@ public class UserBalanceService {
 
         User loggedCreatorProxy = null;
         if (userBalanceMutationData.logCreatorId() != null)
-            userRepository.getReferenceById(userBalanceMutationData.logCreatorId());
+            loggedCreatorProxy = userRepository.getReferenceById(userBalanceMutationData.logCreatorId());
 
         BigDecimal balanceAfter = userBalance.getBalance().add(userBalanceMutationData.balance());
         BigDecimal reservedBalanceAfter =
