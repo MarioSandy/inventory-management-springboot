@@ -13,6 +13,7 @@ import tools.jackson.databind.JsonNode;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -47,8 +48,12 @@ public class OutboxService {
     }
 
     @Transactional
-    public List<OutboxPendingTriggerProjection> getPendingOutbox(List<OutboxEventTypeEnum> eventTypes) {
-        return outboxRepository.getAndMarkedPendingOutbox(eventTypes);
+    public List<OutboxPendingTriggerProjection> getPendingOutbox(List<OutboxEventTypeEnum> excludedTypes) {
+        return outboxRepository.getAndMarkedPendingOutbox(
+            excludedTypes.stream()
+                .map(excludedType -> excludedType.name())
+                .collect(Collectors.toList())
+        );
     }
 
     @Transactional

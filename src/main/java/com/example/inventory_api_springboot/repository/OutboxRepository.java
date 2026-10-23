@@ -27,7 +27,7 @@ public interface OutboxRepository extends JpaRepository<Outbox, UUID> {
             "       'PENDING', " +
             "       'DISPATCH_FAILED' " +
             "   ) " +
-            "       AND event_type NOT IN :listType " +
+            "       AND event_type::text NOT IN (:excludedTypes) " +
             "       AND locked_at IS NULL " +
             "       AND retry_count <= 3 " +
             "   ORDER BY created_at ASC " +
@@ -38,7 +38,7 @@ public interface OutboxRepository extends JpaRepository<Outbox, UUID> {
         nativeQuery = true
     )
     public List<OutboxPendingTriggerProjection> getAndMarkedPendingOutbox(
-        @Param("listType") List<OutboxEventTypeEnum> eventTypes
+        @Param("excludedTypes") List<String> excludedTypes
     );
 
     @Transactional
