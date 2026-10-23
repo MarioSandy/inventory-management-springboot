@@ -73,14 +73,14 @@ public interface UserBalanceRepository extends JpaRepository<UserBalance, UUID> 
     @Query(
         value =
             "UPDATE user_balance ub " +
-            "   SET balance = ub.balance - ubl.reserved_balance, " +
-            "       reserved_balance = ub.reserved_balance - ubl.reserved_balance " +
+            "   SET balance = ub.balance - ubl.reserved_balance_after, " +
+            "       reserved_balance = ub.reserved_balance - ubl.reserved_balance_after " +
             "FROM user_balance_log ubl " +
             "WHERE ub.user_id = ubl.user_id " +
             "   AND ubl.reference_id = :referenceId " +
             "   AND ubl.type = 'ORDER_RESERVED' " +
-            "   AND ub.balance - ubl.reserved_balance >= 0 " +
-            "   AND ub.reserved_balance - ubl.reserved_balance >= 0 " +
+            "   AND ub.balance - ubl.reserved_balance_after >= 0 " +
+            "   AND ub.reserved_balance - ubl.reserved_balance_after >= 0 " +
             "   AND NOT EXISTS (" +
             "       SELECT 1 " +
             "       FROM user_balance_log ubl2 " +
