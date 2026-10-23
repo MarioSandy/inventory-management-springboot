@@ -13,9 +13,11 @@ import com.example.inventory_api_springboot.repository.UserBalanceRepository;
 import com.example.inventory_api_springboot.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -76,11 +78,6 @@ public class UserBalanceService {
         userBalance.setBalance(balanceAfter);
         userBalance.setReservedBalance(reservedBalanceAfter);
 
-//        userBalanceRepository.updateBalanceAndReservedBalance(
-//            userBalanceMutationData.balance(),
-//            userBalanceMutationData.reservedBalance(),
-//            userBalanceMutationData.userId()
-//        );
         userBalanceRepository.save(userBalance);
         userBalanceLogRepository.save(userBalanceLog);
     }
@@ -88,25 +85,74 @@ public class UserBalanceService {
     @Transactional
     public void mutation(
         UUID orderId,
+        UUID userId,
         UserBalanceLogTypeEnum type
     ) {
-        switch (type) {
-            case ORDER_CANCELLED : {
-                userBalanceRepository.cancelOrder(orderId);
-                userBalanceLogRepository.insertReversedLog(
-                    orderId,
-                    UserBalanceLogTypeEnum.ORDER_CANCELLED
+        BigDecimal reservedAmount =
+            userBalanceLogRepository
+                .sumReservedBalanceChange(orderId, UserBalanceLogTypeEnum.ORDER_RESERVED)
+                .orElseThrow(
+                    () -> new EntityNotFoundException(
+                        "Reservation log for order " + orderId + " not found"
+                    )
                 );
-                break;
-            }
-            case ORDER_SHIPPED: {
-                userBalanceRepository.finishOrder(orderId);
-                userBalanceLogRepository.insertSwitchedLog(
-                    orderId,
-                    UserBalanceLogTypeEnum.ORDER_SHIPPED
+
+        UserBalance userBalance =
+            userBalanceRepository.findWithLockByUserId(userId)
+                .orElseThrow(() -> new EntityNotFoundException("User balance not found"));
+
+        BigDecimal balanceBefore = userBalance.getBalance();
+        BigDecimal reservedBalanceBefore = userBalance.getReservedBalance();
+
+        BigDecimal balanceChange =
+            switch (type) {
+                case ORDER_CANCELLED -> BigDecimal.ZERO;
+                case ORDER_SHIPPED -> reservedAmount.negate();
+                default -> throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Unsupported balance log type for order settlement: " + type
                 );
-                break;
-            }
+            };
+        BigDecimal reservedBalanceChange = reservedAmount.negate();
+
+        // mutateBalances validates the null state, rejects negative results and
+        // rejects a negative available balance, so balanceBefore/reservedBalanceBefore
+        // read above are guaranteed to be non-null past this point.
+        userBalance.mutateBalances(balanceChange, reservedBalanceChange);
+
+        BigDecimal balanceAfter = userBalance.getBalance();
+        BigDecimal reservedBalanceAfter = userBalance.getReservedBalance();
+
+        userBalanceRepository.save(userBalance);
+
+        int insertedRows =
+            switch (type) {
+                case ORDER_CANCELLED ->
+                    userBalanceLogRepository.insertReversedLog(
+                        userId,
+                        balanceBefore,
+                        balanceAfter,
+                        reservedBalanceBefore,
+                        reservedBalanceAfter,
+                        orderId
+                    );
+                case ORDER_SHIPPED ->
+                    userBalanceLogRepository.insertSwitchedLog(
+                        userId,
+                        balanceBefore,
+                        balanceAfter,
+                        reservedBalanceBefore,
+                        reservedBalanceAfter,
+                        orderId
+                    );
+                default -> 0;
+            };
+
+        if (insertedRows != 1) {
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Order " + orderId + " has already been cancelled or shipped, so the balance log was not inserted"
+            );
         }
     }
 
@@ -152,16 +198,5 @@ public class UserBalanceService {
     @Transactional
     public void refund(UserBalanceMutationDto userBalanceMutation) {
         mutation(userBalanceMutation);
-    }
-
-    @Transactional
-    public void insertReversedLog(
-        UUID orderId,
-        UserBalanceLogTypeEnum balanceLogType
-    ) {
-        userBalanceLogRepository.insertReversedLog(
-            orderId,
-            balanceLogType
-        );
     }
 }
