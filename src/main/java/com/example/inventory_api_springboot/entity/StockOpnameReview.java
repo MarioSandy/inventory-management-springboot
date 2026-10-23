@@ -75,7 +75,6 @@ public class StockOpnameReview {
     private LocalDateTime reviewedAt;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @MapsId
     @JoinColumn(name = "product_variant_id", nullable = false)
     private ProductVariant productVariant;
 
