@@ -45,15 +45,16 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
                 FROM "order" o
                 JOIN order_detail od
                     ON od.order_id = o.id
-                WHERE o.status = 'ORDER_RESERVED'
+                WHERE o.status = 'RESERVED'
                     AND od.product_variant_id = :productVariantId
-                    AND od.cancelled = FALSE
+                    AND od.cancelled IS NOT TRUE
             ), selected AS (
                 SELECT id
                 FROM order_item_counted
                 WHERE cumulative_reserved - quantity < :shortage
             )
             SELECT od.id,
+                   o.id AS order_id,
                    o.user_id,
                    od.quantity,
                    od.sub_total
@@ -83,8 +84,9 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
                 new OrderDetailCancelResponseDto(
                     currentOrderDetailId,
                     (UUID) currentReturnedList[1],
-                    (int) currentReturnedList[2],
-                    (BigDecimal) currentReturnedList[3]
+                    (UUID) currentReturnedList[2],
+                    (int) currentReturnedList[3],
+                    (BigDecimal) currentReturnedList[4]
                 )
             );
         }

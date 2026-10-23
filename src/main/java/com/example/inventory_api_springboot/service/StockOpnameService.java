@@ -33,11 +33,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
@@ -322,11 +324,21 @@ public class StockOpnameService {
             stockOpnameReviewRepository.findForUpdateById(stockOpnameReviewId)
                 .orElseThrow(() -> new EntityNotFoundException("No Stock Opname Review found"));
 
+        if (stockOpnameReview.getResolutionAction() != null)
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Stock opname review " + stockOpnameReviewId + " has already been resolved as "
+                + stockOpnameReview.getResolutionAction()
+                + " at " + stockOpnameReview.getReviewedAt()
+            );
+
         stockOpnameReview.setRootCause(rejectStockOpnameReviewData.rootCause());
         stockOpnameReview.setInvestigationNote(rejectStockOpnameReviewData.investigationNote());
         stockOpnameReview.setResolutionAction(StockOpnameReviewResolutionEnum.REJECT);
         stockOpnameReview.setUser(userService.getReferenceById(userId));
         stockOpnameReview.setReviewedAt(LocalDateTime.now());
+
+        stockOpnameReviewRepository.save(stockOpnameReview);
 
         return ResponseEntity.ok("Inventory stock opname review rejected successfully");
     }
@@ -341,94 +353,193 @@ public class StockOpnameService {
             stockOpnameReviewRepository.findForUpdateById(stockOpnameReviewId)
                 .orElseThrow(() -> new EntityNotFoundException("No Stock Opname Review found"));
 
+        if (stockOpnameReview.getResolutionAction() != null)
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Stock opname review " + stockOpnameReviewId + " has already been resolved as "
+                + stockOpnameReview.getResolutionAction()
+                + " at " + stockOpnameReview.getReviewedAt()
+            );
+
         UUID productVariantId = stockOpnameReview.getProductVariant().getId();
-        stockOpnameReview.setRootCause(approveStockOpnameReviewData.rootCause());
-        stockOpnameReview.setInvestigationNote(approveStockOpnameReviewData.investigationNote());
-        stockOpnameReview.setResolutionAction(approveStockOpnameReviewData.resolutionAction());
-        stockOpnameReview.setUser(userService.getReferenceById(userId));
 
         Inventory inventory =
             inventoryService.findForUpdateByProductVariantIdAndFreeze(productVariantId, true)
                 .orElseThrow(() -> new EntityNotFoundException("No Inventory found"));
 
-        List<InventoryLog> listInventoryLog = new ArrayList<>();
-        listInventoryLog.add(
-            InventoryLog.builder()
-                .user(userService.getReferenceById(userId))
-                .quantityBefore(inventory.getQuantity())
-                .quantityAfter(stockOpnameReview.getActualQuantity())
-                .quantityChange(
-                        inventory.getQuantity() - stockOpnameReview.getActualQuantity()
-                )
-                .reservedQuantityBefore(inventory.getReservedQuantity())
-                .reservedQuantityAfter(inventory.getReservedQuantity())
-                .reservedQuantityChange(0)
-                .productVariant(
-                    productService.getProductVariantReferenceById(productVariantId)
-                )
-                .referenceId(stockOpnameReviewId)
-                .type(InventoryLogTypeEnum.STOCK_OPNAME)
-                .build()
+        int shortage =
+            Math.max(
+                0,
+                stockOpnameReview.getSystemReservedQuantity() - stockOpnameReview.getActualQuantity()
+            );
+
+        StockOpnameReviewResolutionEnum resolutionAction =
+            approveStockOpnameReviewData.resolutionAction();
+
+        validateStockOpnameResolutionAction(
+            resolutionAction,
+            shortage,
+            productVariantId
         );
 
-        switch (stockOpnameReview.getResolutionAction()) {
-            case RESOLVE_RESERVATION_SHORTAGE: {
-                List<UserBalanceMutationDto> listUserBalanceMutationData =
-                    new ArrayList<>();
+        List<InventoryLog> listInventoryLog = new ArrayList<>();
 
-                List<OrderDetailCancelResponseDto> listCancelOrderDetail =
-                    orderService.cancelOrderDetail(
-                        productVariantId,
-                        stockOpnameReview.getSystemReservedQuantity() - stockOpnameReview.getActualQuantity(),
-                        userId
-                    );
+        int quantityChange =
+            stockOpnameReview.getActualQuantity() - inventory.getQuantity();
 
-                int totalCancelledQuantity = 0;
-                for (
-                    OrderDetailCancelResponseDto currentOrderDetailCancel : listCancelOrderDetail
-                ) {
-                    listUserBalanceMutationData.add(
-                        new UserBalanceMutationDto(
-                            BigDecimal.ZERO,
-                            currentOrderDetailCancel.cancelledSubTotal(),
-                            UserBalanceLogTypeEnum.REFUND_STOCK_SHORTAGE,
-                            currentOrderDetailCancel.userId(),
-                            null,
-                            currentOrderDetailCancel.orderDetailId()
-                        )
-                    );
-                    totalCancelledQuantity += currentOrderDetailCancel.cancelledQuantity();
-                }
+        if (quantityChange != 0) {
+            listInventoryLog.add(
+                InventoryLog.builder()
+                    .user(userService.getReferenceById(userId))
+                    .quantityBefore(inventory.getQuantity())
+                    .quantityAfter(stockOpnameReview.getActualQuantity())
+                    .quantityChange(quantityChange)
+                    .reservedQuantityBefore(inventory.getReservedQuantity())
+                    .reservedQuantityAfter(inventory.getReservedQuantity())
+                    .reservedQuantityChange(0)
+                    .productVariant(
+                        productService.getProductVariantReferenceById(productVariantId)
+                    )
+                    .referenceId(stockOpnameReviewId)
+                    .type(InventoryLogTypeEnum.STOCK_OPNAME)
+                    .build()
+            );
+        }
 
-                userBalanceService.refundMultipleUsers(listUserBalanceMutationData);
+        int totalCancelledQuantity = 0;
 
+        if (resolutionAction == StockOpnameReviewResolutionEnum.RESOLVE_RESERVATION_SHORTAGE) {
+            List<UserBalanceMutationDto> listUserBalanceMutationData = new ArrayList<>();
+
+            List<OrderDetailCancelResponseDto> listCancelOrderDetail =
+                orderService.cancelOrderDetail(
+                    productVariantId,
+                    shortage,
+                    userId
+                );
+
+            if (listCancelOrderDetail.isEmpty())
+                throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Product variant " + productVariantId + " is short by " + shortage
+                    + " reserved unit(s), but no cancellable reserved order detail was found. "
+                    + "Refusing to approve stock opname review " + stockOpnameReviewId
+                    + " because the shortage cannot be resolved."
+                );
+
+            for (OrderDetailCancelResponseDto currentOrderDetailCancel : listCancelOrderDetail) {
+                listUserBalanceMutationData.add(
+                    new UserBalanceMutationDto(
+                        BigDecimal.ZERO,
+                        currentOrderDetailCancel.cancelledSubTotal().negate(),
+                        UserBalanceLogTypeEnum.REFUND_STOCK_SHORTAGE,
+                        currentOrderDetailCancel.userId(),
+                        null,
+                        currentOrderDetailCancel.orderId()
+                    )
+                );
+                totalCancelledQuantity += currentOrderDetailCancel.cancelledQuantity();
+            }
+
+            userBalanceService.refundMultipleUsers(listUserBalanceMutationData);
+
+            if (totalCancelledQuantity > 0) {
                 listInventoryLog.add(
                     InventoryLog.builder()
                         .user(userService.getReferenceById(userId))
-                        .quantityBefore(stockOpnameReview.getActualQuantity())
-                        .quantityAfter(stockOpnameReview.getActualQuantity())
+                        .quantityBefore(inventory.getQuantity())
+                        .quantityAfter(inventory.getQuantity())
                         .quantityChange(0)
                         .reservedQuantityBefore(inventory.getReservedQuantity())
-                        .reservedQuantityAfter(inventory.getReservedQuantity() - totalCancelledQuantity)
-                        .reservedQuantityChange(totalCancelledQuantity)
+                        .reservedQuantityAfter(
+                            inventory.getReservedQuantity() - totalCancelledQuantity
+                        )
+                        .reservedQuantityChange(-totalCancelledQuantity)
                         .productVariant(
-                                productService.getProductVariantReferenceById(productVariantId)
+                            productService.getProductVariantReferenceById(productVariantId)
                         )
                         .referenceId(stockOpnameReviewId)
                         .type(InventoryLogTypeEnum.RESERVATION_RELEASE)
                         .build()
                 );
 
-//                inventory.setQuantity(stockOpnameReview.getActualQuantity());
                 inventory.setReservedQuantity(
                     inventory.getReservedQuantity() - totalCancelledQuantity
                 );
-                break;
             }
         }
+
+        if (stockOpnameReview.getActualQuantity() - inventory.getReservedQuantity() < 0)
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Cannot reconcile inventory for product variant " + productVariantId
+                + " because the resulting available quantity would be negative"
+                + " (actual_quantity=" + stockOpnameReview.getActualQuantity()
+                + ", reserved_quantity_after=" + inventory.getReservedQuantity()
+                + ")."
+            );
+
         inventory.setQuantity(stockOpnameReview.getActualQuantity());
         inventoryService.save(inventory);
+
+        if (!listInventoryLog.isEmpty())
+            inventoryService.saveAllLog(listInventoryLog);
+
+        stockOpnameReview.setRootCause(approveStockOpnameReviewData.rootCause());
+        stockOpnameReview.setInvestigationNote(approveStockOpnameReviewData.investigationNote());
+        stockOpnameReview.setResolutionAction(resolutionAction);
+        stockOpnameReview.setUser(userService.getReferenceById(userId));
+        stockOpnameReview.setReviewedAt(LocalDateTime.now());
+
         stockOpnameReviewRepository.save(stockOpnameReview);
+
         return ResponseEntity.ok("Inventory stock opname review approved successfully");
+    }
+
+    private void validateStockOpnameResolutionAction(
+        StockOpnameReviewResolutionEnum resolutionAction,
+        int shortage,
+        UUID productVariantId
+    ) {
+        if (resolutionAction == null)
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "resolution_action is required. Allowed value: "
+                + allowedResolutionActionMessage(shortage) + "."
+            );
+
+        if (resolutionAction == StockOpnameReviewResolutionEnum.REJECT)
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "resolution_action REJECT cannot be used on the approve endpoint. "
+                + "Use the reject endpoint instead."
+            );
+
+        boolean resolvesShortage =
+            resolutionAction == StockOpnameReviewResolutionEnum.RESOLVE_RESERVATION_SHORTAGE;
+
+        if (shortage > 0 && !resolvesShortage)
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Product variant " + productVariantId + " is short by " + shortage
+                + " reserved unit(s), so resolution_action must be RESOLVE_RESERVATION_SHORTAGE "
+                + "instead of " + resolutionAction + "."
+            );
+
+        if (shortage == 0 && resolvesShortage)
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Product variant " + productVariantId + " has no reservation shortage, so "
+                + "resolution_action RESOLVE_RESERVATION_SHORTAGE is not applicable. Allowed value: "
+                + allowedResolutionActionMessage(0) + "."
+            );
+    }
+
+    private String allowedResolutionActionMessage(int shortage) {
+        if (shortage > 0)
+            return StockOpnameReviewResolutionEnum.RESOLVE_RESERVATION_SHORTAGE.name();
+
+        return StockOpnameReviewResolutionEnum.RECONCILE_TO_ACTUAL.name()
+            + " or " + StockOpnameReviewResolutionEnum.CORRECT_INVENTORY_MOVEMENT.name();
     }
 }
