@@ -27,10 +27,10 @@ public class InventoryNativeRepositoryImpl implements InventoryNativeRepository 
     @Override
     public List<InventoryStockOpnameExcelDto> getInventoryForStockOpnameExcel(UUID cursor) {
         List<InventoryStockOpnameExcelDto> listReturnedData = new ArrayList<>();
-        String queryString = "";
+        String queryString = "WHERE i.\"freeze\" IS NOT TRUE ";
 
         if (cursor != null) {
-            queryString = "WHERE pv.id > :cursor ";
+            queryString += "AND pv.id > :cursor ";
         }
 
         Query query = entityManager.createNativeQuery(
