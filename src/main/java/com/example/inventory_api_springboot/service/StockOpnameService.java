@@ -332,6 +332,8 @@ public class StockOpnameService {
                 + " at " + stockOpnameReview.getReviewedAt()
             );
 
+        UUID productVariantId = stockOpnameReview.getProductVariant().getId();
+
         stockOpnameReview.setRootCause(rejectStockOpnameReviewData.rootCause());
         stockOpnameReview.setInvestigationNote(rejectStockOpnameReviewData.investigationNote());
         stockOpnameReview.setResolutionAction(StockOpnameReviewResolutionEnum.REJECT);
@@ -339,6 +341,8 @@ public class StockOpnameService {
         stockOpnameReview.setReviewedAt(LocalDateTime.now());
 
         stockOpnameReviewRepository.save(stockOpnameReview);
+
+        inventoryService.unfreezeInventories(Set.of(productVariantId));
 
         return ResponseEntity.ok("Inventory stock opname review rejected successfully");
     }
@@ -493,6 +497,8 @@ public class StockOpnameService {
 
         stockOpnameReviewRepository.save(stockOpnameReview);
 
+        inventoryService.unfreezeInventories(Set.of(productVariantId));
+
         return ResponseEntity.ok("Inventory stock opname review approved successfully");
     }
 
@@ -539,7 +545,6 @@ public class StockOpnameService {
         if (shortage > 0)
             return StockOpnameReviewResolutionEnum.RESOLVE_RESERVATION_SHORTAGE.name();
 
-        return StockOpnameReviewResolutionEnum.RECONCILE_TO_ACTUAL.name()
-            + " or " + StockOpnameReviewResolutionEnum.CORRECT_INVENTORY_MOVEMENT.name();
+        return StockOpnameReviewResolutionEnum.RECONCILE_TO_ACTUAL.name();
     }
 }
