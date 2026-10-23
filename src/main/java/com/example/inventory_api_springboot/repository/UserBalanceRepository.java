@@ -73,18 +73,25 @@ public interface UserBalanceRepository extends JpaRepository<UserBalance, UUID> 
     @Query(
         value =
             "UPDATE user_balance ub " +
-            "   SET balance = ub.balance - ubl.reserved_balance_after, " +
-            "       reserved_balance = ub.reserved_balance - ubl.reserved_balance_after " +
-            "FROM user_balance_log ubl " +
-            "WHERE ub.user_id = ubl.user_id " +
-            "   AND ubl.reference_id = :referenceId " +
-            "   AND ubl.type = 'ORDER_RESERVED' " +
-            "   AND ub.balance - ubl.reserved_balance_after >= 0 " +
-            "   AND ub.reserved_balance - ubl.reserved_balance_after >= 0 " +
-            "   AND NOT EXISTS (" +
+            "   SET balance = ub.balance - agg.reserved_total, " +
+            "       reserved_balance = ub.reserved_balance - agg.reserved_total, " +
+            "       updated_at = CURRENT_TIMESTAMP " +
+            "FROM ( " +
+            "    SELECT user_id, SUM(reserved_balance_change) AS reserved_total " +
+            "    FROM user_balance_log " +
+            "    WHERE reference_id = :referenceId " +
+            "       AND type = 'ORDER_RESERVED' " +
+            "       AND reserved_balance_change IS NOT NULL " +
+            "    GROUP BY user_id " +
+            ") agg " +
+            "WHERE ub.user_id = agg.user_id " +
+            "   AND agg.reserved_total > 0 " +
+            "   AND ub.balance - agg.reserved_total >= 0 " +
+            "   AND ub.reserved_balance - agg.reserved_total >= 0 " +
+            "   AND NOT EXISTS ( " +
             "       SELECT 1 " +
             "       FROM user_balance_log ubl2 " +
-            "       WHERE ubl2.reference_id = ubl.reference_id " +
+            "       WHERE ubl2.reference_id = :referenceId " +
             "           AND ubl2.type IN ('ORDER_CANCELLED', 'ORDER_SHIPPED') " +
             "   ) ",
         nativeQuery = true
