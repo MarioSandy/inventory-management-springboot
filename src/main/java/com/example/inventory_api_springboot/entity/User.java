@@ -104,9 +104,4 @@ public class User {
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
     private List<StockOpnameReview> listStockOpnameReview;
-
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    @ToString.Exclude
-    @EqualsAndHashCode.Exclude
-    private List<PendingInventoryProcess> listPendingInventoryProcess;
 }
