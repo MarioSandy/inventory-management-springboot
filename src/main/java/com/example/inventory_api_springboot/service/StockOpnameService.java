@@ -19,7 +19,6 @@ import com.example.inventory_api_springboot.enums.InventoryLogTypeEnum;
 import com.example.inventory_api_springboot.enums.OutboxEventTypeEnum;
 import com.example.inventory_api_springboot.enums.StockOpnameReviewResolutionEnum;
 import com.example.inventory_api_springboot.enums.UserBalanceLogTypeEnum;
-import com.example.inventory_api_springboot.repository.PendingInventoryProcessRepository;
 import com.example.inventory_api_springboot.repository.StockOpnameReviewRepository;
 import com.github.pjfanning.xlsx.StreamingReader;
 import jakarta.persistence.EntityNotFoundException;
@@ -46,9 +45,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -327,6 +326,7 @@ public class StockOpnameService {
         stockOpnameReview.setInvestigationNote(rejectStockOpnameReviewData.investigationNote());
         stockOpnameReview.setResolutionAction(StockOpnameReviewResolutionEnum.REJECT);
         stockOpnameReview.setUser(userService.getReferenceById(userId));
+        stockOpnameReview.setReviewedAt(LocalDateTime.now());
 
         return ResponseEntity.ok("Inventory stock opname review rejected successfully");
     }
@@ -364,7 +364,7 @@ public class StockOpnameService {
                 .reservedQuantityAfter(inventory.getReservedQuantity())
                 .reservedQuantityChange(0)
                 .productVariant(
-                        productService.getProductVariantReferenceById(productVariantId)
+                    productService.getProductVariantReferenceById(productVariantId)
                 )
                 .referenceId(stockOpnameReviewId)
                 .type(InventoryLogTypeEnum.STOCK_OPNAME)
