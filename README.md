@@ -172,28 +172,63 @@ When setting up a new environment, run the application with the intended databas
 ### Prerequisites
 
 - JDK 17
-- Maven (or the Maven wrapper, if included)
+- Git
+- Docker Desktop (or Docker Engine with the Compose plugin) for RabbitMQ
 - PostgreSQL
-- RabbitMQ
-- AWS S3 configuration for file-upload workflows
+- Maven, or use the included Maven wrapper
 
-### Run
+### 1. Clone the repository
 
 ~~~bash
 git clone https://github.com/MarioSandy/inventory-management-springboot.git
 cd inventory-management-springboot
+~~~
+
+### 2. Start RabbitMQ with Docker
+
+Docker is used here to run RabbitMQ locally; PostgreSQL is a separate prerequisite.
+
+~~~bash
+docker compose up -d rabbitmq
+~~~
+
+The Compose file starts RabbitMQ with its management UI. The default local ports are `5672` (AMQP) and `15672` (management UI). Open `http://localhost:15672` to access the UI, using the local credentials defined in `docker-compose.yml`.
+
+To stop the container:
+
+~~~bash
+docker compose down
+~~~
+
+If Docker is not installed, install Docker Desktop for your operating system and start it before running the Compose command.
+
+### 3. Configure PostgreSQL and application settings
+
+Create a local PostgreSQL database named `inventory-api-springboot`, or update the datasource URL in `src/main/resources/application.yaml` to match your database.
+
+Review the application's datasource, RabbitMQ, JWT, and S3 settings before starting it. Use your own local credentials and environment-specific secrets; never use or publish credentials copied from another environment. File upload workflows require a working S3-compatible endpoint and bucket configuration.
+
+On startup, Flyway applies the database migrations in version order. Make sure PostgreSQL is running and the configured database is reachable before launching the application.
+
+### 4. Run the application
+
+~~~bash
 ./mvnw spring-boot:run
 ~~~
 
-If the Maven wrapper is not included, run `mvn spring-boot:run`.
+If the Maven wrapper is not available in your checkout, use `mvn spring-boot:run`.
 
-Configure the database, RabbitMQ, and S3 settings using the application configuration and environment variables. Do not commit real credentials, private keys, tokens, or production connection strings.
+### 5. Seed local sample data
 
-Run tests with:
+Run the CLI seeder with the `--seed` argument:
 
 ~~~bash
-./mvnw test
+./mvnw spring-boot:run -Dspring-boot.run.arguments=--seed
 ~~~
+
+The seeder clears and recreates selected user, product, and master-data records before inserting sample data. **Use this only with a disposable local database**, not with a database containing data you need to preserve.
+
+The current seeder does not exit the application after seeding, so the Spring Boot application continues running after the seed task completes. Use the normal run command when you do not want to reseed the database.
 
 ## Engineering considerations
 
