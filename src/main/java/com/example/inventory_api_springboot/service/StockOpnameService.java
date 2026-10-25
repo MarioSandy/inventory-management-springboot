@@ -311,6 +311,8 @@ public class StockOpnameService {
         inventoryService.unfreezeInventories(listValidId);
         stockOpnameReviewRepository.saveAll(listStockOpnameReview);
         dataBulkImportLogService.insertBulkDataBulkLogError(listDataBulkImportLogError);
+        dataBulkImportLogService.incrementProcessedChunk(outboxData.getEntityId());
+        dataBulkImportLogService.updateStatusFinish(outboxData.getEntityId());
         return ResponseEntity.ok("Inventory stock opname finished");
     }
 

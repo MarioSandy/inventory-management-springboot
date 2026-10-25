@@ -1,0 +1,45 @@
+spring:
+  application:
+    name: inventory-api-springboot
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USERNAME}
+    password: ${DATABASE_PASSWORD}
+    driver-class-name: ${DATABASE_DRIVER_CLASS_NAME}
+  jwt:
+    secret: ${JWT_SECRET}
+  crypto:
+    argon2:
+      memory-kb: 65536
+      iterations: 3
+      parallelism: 4
+      salt-length: 16
+      hash-length: 32
+  flyway:
+    repair-on-migrate=true:
+  aws:
+    access-key-id: ${AWS_ACCESS_KEY_ID}
+    secret-key-id: ${AWS_SECRET_KEY_ID}
+    region: ${AWS_REGION}
+    endpoint: ${AWS_ENDPOINT}
+    bucket-name: ${AWS_BUCKET_NAME}
+  # Enable auto-retries for RabbitMQ listeners
+  rabbitmq:
+    listener:
+      simple:
+        retry:
+          enabled: true
+          # Initial interval between retries (e.g., 2000ms = 2 seconds)
+          initial-interval: 2000ms
+          # Multiplier for the backoff interval (2.0 means: 2s, then 4s, then 8s)
+          multiplier: 2.0
+          # Maximum interval between retries
+          max-interval: 10000ms
+          # Choose what happens when retry attempts are exhausted:
+          # true = put it back in the main queue (causes infinite loops if the error is permanent!)
+          # false = reject it (sends it directly to the DLQ if configured)
+          default-requeue-rejected: false
+  file-chunk:
+    max-chunk-size:
+      product-batch-create: 500
+      inventory-stock-opname: 100
