@@ -19,7 +19,6 @@ public class RabbitMQConfig {
     public static final String NOTIFICATION_EXCHANGE = "notification.exchange";
     public static final String SHARED_DLX = "shared.dlx";
 
-    // Queue Constants
     public static final String PRODUCT_BATCH_CREATE_QUEUE = "product.create-batch.queue";
     public static final String INVENTORY_STOCK_OPNAME_QUEUE = "inventory.stock-opname.queue";
     public static final String ORDER_PROCESSING_QUEUE = "order.process.queue";
@@ -29,9 +28,6 @@ public class RabbitMQConfig {
     public static final String CENTRAL_DLQ = "central.dead.letter.queue";
     public static final String DLQ_ROUTING_KEY = "dead.letter.key";
 
-    // ==========================================
-    // 1. Central Dead Letter Infrastructure (DLX & DLQ)
-    // ==========================================
     @Bean
     public DirectExchange sharedDlx() {
         return new DirectExchange(SHARED_DLX);
@@ -47,9 +43,6 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(centralDlq).to(sharedDlx).with(DLQ_ROUTING_KEY);
     }
 
-    // ==========================================
-    // 2. Business Exchanges
-    // ==========================================
     @Bean
     public TopicExchange productExchange() {
         return new TopicExchange(PRODUCT_EXCHANGE);
@@ -73,9 +66,6 @@ public class RabbitMQConfig {
         return new FanoutExchange(NOTIFICATION_EXCHANGE);
     }
 
-    // ==========================================
-    // 3. Business Queues
-    // ==========================================
     @Bean
     public Queue productBatchCreateQueue() {
         return createQueueWithRetry(PRODUCT_BATCH_CREATE_QUEUE);
@@ -105,9 +95,6 @@ public class RabbitMQConfig {
         return new Queue(EMAIL_QUEUE, true);
     }
 
-    // ==========================================
-    // 4. Bindings
-    // ==========================================
     @Bean Binding bindFileOrchestraProductBatchCreateQueue(Queue fileOrchestraProductBatchCreateQueue, TopicExchange fileOrchestraExchange) {
         return BindingBuilder.bind(fileOrchestraProductBatchCreateQueue).to(fileOrchestraExchange).with("file-orchestra.product.create-batch");
     }
@@ -131,17 +118,12 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(orderProcessingQueue).to(orderExchange).with("order.process");
     }
 
-    // NOTE: Make sure to implement bindings for your fileOrchestraExchange queues here if needed!
-
     @Bean
     public Binding bindEmailToNotif(Queue emailQueue, FanoutExchange notificationExchange) {
         // FIXED: Parameter name now matches the exact Bean name 'notificationExchange'
         return BindingBuilder.bind(emailQueue).to(notificationExchange);
     }
 
-    // ==========================================
-    // 5. Serialization & Infrastructure Templates
-    // ==========================================
     @Bean
     public MessageConverter jsonMessageConverter() {
         // FIXED: Replaced legacy JacksonJsonMessageConverter with modern Jackson2 version
@@ -155,7 +137,6 @@ public class RabbitMQConfig {
         return rabbitTemplate;
     }
 
-    // Helper Method
     private Queue createQueueWithRetry(String queueName) {
         return QueueBuilder.durable(queueName)
                 .withArgument("x-dead-letter-exchange", SHARED_DLX)

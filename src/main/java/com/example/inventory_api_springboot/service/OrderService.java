@@ -149,12 +149,6 @@ public class OrderService {
             UserBalanceLogTypeEnum.ORDER_CANCELLED
         );
 
-//        inventoryService.mutation(
-//            id,
-//            InventoryLogTypeEnum.ORDER_CANCELLED,
-//            userId
-//        );
-
         transitionOrderStatus(
             id,
             OrderStatusEnum.PENDING,
@@ -200,9 +194,6 @@ public class OrderService {
             );
         List<InventoryLog> listInventoryLog = new ArrayList<>();
 
-        // Only consume the reserved balance for the still-active details. Cancelled
-        // details (e.g. from stock opname shortage resolution) have already had their
-        // reservation refunded, so settling them again would over-charge the user.
         userBalanceService.mutation(
             id,
             order.getUser().getId(),
@@ -211,11 +202,6 @@ public class OrderService {
         );
 
         for (OrderDetail orderDetail : listActiveOrderDetail) {
-//            inventoryService.mutation(
-//                orderDetail.getId(),
-//                InventoryLogTypeEnum.ORDER_SHIPPED,
-//                userId
-//            );
             Inventory inventory =
                 listInventory.stream()
                     .filter(

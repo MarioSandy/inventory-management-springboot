@@ -139,27 +139,4 @@ public class InventoryNativeRepositoryImpl implements InventoryNativeRepository 
 
         return resultInventory;
     }
-
-//    @Override
-//    @Transactional
-//    public void approveStockOpnameReview(
-//        UUID stockOpnameReviewId,
-//        int shortage,
-//        List<InventoryLog> listInventoryLog
-//    ) {
-//        Query query = entityManager.createNativeQuery(
-//            "UPDATE inventory i " +
-//            "   SET quantity = s.actual_quantity, " +
-//            "       reserved_quantity = reserved_quantity - :shortage " +
-//            "FROM stock_opname_review s " +
-//            "WHERE i.product_variant_id = s.product_variant_id " +
-//            "   AND s.id = :stockOpnameReviewId "
-//        );
-//
-//        query.setParameter("shortage", shortage);
-//        query.setParameter("stockOpnameReviewId", stockOpnameReviewId);
-//        query.executeUpdate();
-//
-//        entityManager.
-//    }
 }

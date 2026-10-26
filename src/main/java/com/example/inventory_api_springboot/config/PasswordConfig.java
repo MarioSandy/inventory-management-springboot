@@ -16,7 +16,6 @@ public class PasswordConfig {
     PasswordEncoder passwordEncoder(SecurityConfigProperties.Argon2ConfigProperties securityConfigProperties) {
         Map<String, PasswordEncoder> encoders = new HashMap<>();
 
-        // Define Argon2 using the properties parsed from application.yaml
         Argon2PasswordEncoder argon2PasswordEncoder = new Argon2PasswordEncoder(
                 securityConfigProperties.saltLength(),
                 securityConfigProperties.hashLength(),

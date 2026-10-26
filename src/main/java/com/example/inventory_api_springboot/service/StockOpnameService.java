@@ -223,8 +223,6 @@ public class StockOpnameService {
                     .findFirst()
                     .orElse(null);
 
-            if (currentInventory == null) System.out.println(currentInventoryStockOpname.productVariantId());
-
             if (currentInventory == null) {
                 DataBulkImportLogErrorId dataBulkImportLogErrorId =
                     DataBulkImportLogErrorId.builder()

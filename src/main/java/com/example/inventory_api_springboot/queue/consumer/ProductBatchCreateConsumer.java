@@ -17,15 +17,10 @@ public class ProductBatchCreateConsumer {
         try {
             productService.insertProductBatch(productData);
         } catch (org.springframework.dao.DataAccessException e) {
-            // 1. INFRASTRUCTURE ERRORS (S3 Down, DB Connection dropped, Network Blip)
             throw new RuntimeException("Transient error, retry allowed", e);
-
         } catch (NullPointerException | IllegalStateException | IllegalArgumentException e) {
-            // 2. BAD DATA / BROKEN CODE (User uploaded empty cell, wrong column format, invalid file format)
             throw new org.springframework.amqp.AmqpRejectAndDontRequeueException("Fatal payload/parsing error", e);
-
         } catch (Exception e) {
-            // 3. FALLBACK CATCHALL
             throw new org.springframework.amqp.AmqpRejectAndDontRequeueException("Unexpected critical error", e);
         }
     }

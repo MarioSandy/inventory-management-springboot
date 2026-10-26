@@ -142,7 +142,6 @@ public class AuthService {
         UserSession userSession = userSessionRepository.findByClientSessionIdAndDeletedAtIsNull(sessionId)
                 .orElseThrow(() -> new BadRequestException("No session found"));
 
-        System.out.println(userSession);
         String accessToken = jwtService.generateToken(userId, sessionId, Duration.ofMinutes(15));
         // Set Response Secure Cookie
         ResponseCookie accessTokenCookie = ResponseCookie.from("access_token", accessToken)

@@ -121,9 +121,6 @@ public class OrderNativeRepositoryImpl implements OrderNativeRepository {
             );
         }
 
-        // Runs after the detail update in the same transaction, so NOT EXISTS already
-        // sees the rows just flagged as cancelled. Orders that still have at least one
-        // active detail are left untouched.
         Query cancelOrderWithoutActiveDetailQuery = entityManager.createNativeQuery(
             """
             UPDATE "order" o

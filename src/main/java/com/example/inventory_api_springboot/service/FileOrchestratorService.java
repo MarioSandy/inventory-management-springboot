@@ -75,38 +75,6 @@ public class FileOrchestratorService {
         return lookUpId;
     }
 
-//    private void pushChunkToOutbox(
-//        List<ProductExcelCreatePayloadDto> chunked,
-//        UUID entityId,
-//        UUID createdBy,
-//        UUID dataBulkImportLogId,
-//        List<DataBulkImportLogError> listDataBulkImportLogError,
-//        AtomicInteger totalChunk
-//    ) {
-//        if (!chunked.isEmpty()) {
-//            outboxService.create(
-//                entityId,
-//                "Product",
-//                OutboxEventTypeEnum.CREATE_PRODUCT_BATCH,
-//                objectMapper.valueToTree(chunked),
-//                createdBy
-//            );
-//
-//            totalChunk.getAndIncrement();
-//        }
-//
-//        dataBulkImportLogService.incrementTotalRawAndActualChunk(
-//            dataBulkImportLogId,
-//            !chunked.isEmpty()
-//        );
-//
-//        if (!listDataBulkImportLogError.isEmpty())
-//            dataBulkImportLogService.insertBulkDataBulkLogError(listDataBulkImportLogError);
-//
-//        listDataBulkImportLogError.clear();
-//        chunked.clear();
-//    }
-
     private <T>void pushChunkToOutbox(
         List<T> chunked,
         UUID entityId,

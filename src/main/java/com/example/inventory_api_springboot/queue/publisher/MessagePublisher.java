@@ -84,15 +84,12 @@ public class MessagePublisher {
                     : null
             );
 
-            System.out.println(new Gson().toJson(outboxPublisherMessage));
-
             rabbitTemplate.convertAndSend(
                 exchangeName,
                 routingKey,
                 outboxPublisherMessage
             );
 
-            System.out.println("Send to Exchange successfully");
             outboxService.updateStatusSuccessDispatch(pendingOutboxData.getId());
         } catch (MessageConversionException e) {
             e.printStackTrace();

@@ -171,8 +171,6 @@ public class ProductService {
     }
 
     private void writeValueToCell(Cell cell, Object value, Class<?> type) {
-        System.out.println("Value : " + value);
-        System.out.println("Type : " + type);
         if (value == null) {
             cell.setBlank(); // Handle null values safely
             return;
@@ -207,7 +205,6 @@ public class ProductService {
         List<String> headerNames,
         Map<Function<T, ?>, Class<?>> registry
     ) {
-        System.out.println("masuk pasti");
         // Create sheet
         Sheet sheet = workbook.createSheet(sheetName);
         // Get header row
@@ -629,13 +626,6 @@ public class ProductService {
             listInsertProductBrandId.add(currentProductData.productBrandId());
             listInsertProductBasePrice.add(currentProductData.basePrice());
         }
-
-        System.out.println(
-            "BEFORE INSERT tx active=" +
-            TransactionSynchronizationManager.isActualTransactionActive() +
-            ", name=" +
-            TransactionSynchronizationManager.getCurrentTransactionName()
-        );
 
         List<ProductBulkInsertReturningDto> listReturnedProduct =
             productRepository.insertBulkProducts(

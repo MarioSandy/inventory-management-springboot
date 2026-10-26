@@ -162,33 +162,6 @@ public class ProductNativeRepositoryImpl implements ProductNativeRepository {
         ).toList();
     }
 
-//    @Override
-//    public List<ProductVariantPriceDto> findListIdAndPrice(
-//        Set<UUID> listProductVariantIds
-//    ) {
-//        Query query = entityManager.createNativeQuery(
-//            "SELECT pv.id, " +
-//                "      COALESCE(pv.price, p.basePrice) AS price " +
-//                "FROM Product p " +
-//                "JOIN p.listProductVariants pv " +
-//                "    ON p.id = pv.productId " +
-//                "    AND pv.id IN :listProductVariantIds " +
-//                "    AND pv.deletedAt IS NULL "
-//        );
-//
-//        query.setParameter("listProductVariantIds", listProductVariantIds);
-//        List<Object[]> listResult = query.getResultList();
-//
-//        return listResult.stream().map(
-//            result -> {
-//                return new ProductVariantPriceDto(
-//                    (UUID) result[0],
-//                    (BigDecimal) result[1]
-//                );
-//            }
-//        ).toList();
-//    }
-
     @Override
     public List<ProductInvalidMasterDataIdDto> checkInvalidMasterDataIds(
         Set<String> listSizeId,
@@ -250,7 +223,6 @@ public class ProductNativeRepositoryImpl implements ProductNativeRepository {
         );
 
         String completeQueryString = String.join("\n UNION ALL \n", queryString);
-        System.out.println(completeQueryString);
 
         Query query = entityManager.createNativeQuery(completeQueryString);
         query.setParameter(1, listColorId.toArray(new String[0]));
@@ -269,91 +241,6 @@ public class ProductNativeRepositoryImpl implements ProductNativeRepository {
                 }
         ).toList();
     }
-
-//    @Override
-//    @Transactional
-//    public List<ProductBulkInsertReturningDto> insertBulkProducts(
-//        String[] listProductName,
-//        String[] listProductDescription,
-//        UUID[] listProductCategoryId,
-//        UUID[] listProductBrandId,
-//        BigDecimal[] listProductBasePrice
-//    ) {
-//        Query queryInsertProduct = entityManager.createNativeQuery(
-//            "WITH incoming ( " +
-//            "   name, description, product_category_id, " +
-//            "   product_brand_id, base_price " +
-//            ") AS ( " +
-//            "   SELECT * " +
-//            "   FROM UNNEST( " +
-//            "       ?::VARCHAR[], ?::VARCHAR[], ?::UUID[], " +
-//            "       ?::UUID[], ?::NUMERIC[] " +
-//            "   ) " +
-//            "), " +
-//            "inserted AS ( " +
-//            "   INSERT INTO product ( " +
-//            "       name, description, product_category_id, " +
-//            "       product_brand_id, base_price, version, created_at " +
-//            "   ) " +
-//            "   SELECT name, " +
-//            "          description, " +
-//            "          product_category_id, " +
-//            "          product_brand_id, " +
-//            "          base_price, " +
-//            "          0, " +
-//            "          CURRENT_DATE " +
-//            "   FROM incoming " +
-//            "   ON CONFLICT (name, product_brand_id) DO NOTHING " +
-//            "   RETURNING id, name, product_brand_id " +
-//            "), " +
-//            "conflicted AS ( " +
-//            "   SELECT p.id, p.name, p.product_brand_id " +
-//            "   FROM product p " +
-//            "   JOIN incoming i " +
-//            "     ON p.name = i.name " +
-//            "     AND p.product_brand_id = i.product_brand_id " +
-//            ") " +
-//            "SELECT id, name, product_brand_id FROM inserted " +
-//            "UNION ALL " +
-//            "SELECT id, name, product_brand_id FROM conflicted "
-//        );
-//
-//        queryInsertProduct.setParameter(
-//            1,
-//            listProductName
-//        );
-//        queryInsertProduct.setParameter(
-//            2,
-//            listProductDescription
-//        );
-//        queryInsertProduct.setParameter(
-//            3,
-//            listProductCategoryId
-//        );
-//        queryInsertProduct.setParameter(
-//            4,
-//            listProductBrandId
-//        );
-//        queryInsertProduct.setParameter(
-//            5,
-//            listProductBasePrice
-//        );
-//
-//        List<Object[]> listReturnedProduct = queryInsertProduct.getResultList();
-//        List<ProductBulkInsertReturningDto> listMappedReturnedProduct = new ArrayList<>();
-//
-//        for (Object[] currentReturnedProduct : listReturnedProduct) {
-//            listMappedReturnedProduct.add(
-//                new ProductBulkInsertReturningDto(
-//                    (UUID) currentReturnedProduct[0],
-//                    (String) currentReturnedProduct[1],
-//                    (UUID) currentReturnedProduct[2]
-//                )
-//            );
-//        }
-//
-//        return listMappedReturnedProduct;
-//    }
     
     @Override
     @Transactional

@@ -67,19 +67,16 @@ public class User {
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 
-    // Maps back to UserDetail. CascadeType.ALL handles automatic saving/deletion.
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
     private UserDetail userDetail;
 
-    // Maps back to UserDetail. CascadeType.ALL handles automatic saving/deletion.
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
     private UserBalance userBalance;
 
-    // Maps back to UserDetail. CascadeType.ALL handles automatic saving/deletion.
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude

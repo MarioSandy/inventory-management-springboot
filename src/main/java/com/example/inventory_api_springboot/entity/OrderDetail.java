@@ -39,9 +39,6 @@ public class OrderDetail {
 
     private Boolean cancelled;
 
-//    @Column(name = "stock_opname_pending")
-//    private Boolean stockOpnamePending;
-
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "product_variant_id", nullable = false)
     private ProductVariant productVariant;

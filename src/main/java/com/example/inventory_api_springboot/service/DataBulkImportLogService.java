@@ -71,13 +71,6 @@ public class DataBulkImportLogService {
         assertSingleRowUpdated(updatedRows, dataBulkImportLogId);
     }
 
-    /**
-     * Menandai log sebagai FINISH hanya jika seluruh chunk sudah diproses.
-     * 0 row ter-update berarti guard "processedActualChunk = totalActualChunk" belum terpenuhi
-     * (import masih berjalan), sehingga bukan kondisi error.
-     *
-     * @return true bila status berhasil diubah menjadi FINISH.
-     */
     @Transactional
     public boolean updateStatusFinish(UUID dataBulkImportLogId) {
         return dataBulkImportLogRepository.updateStatusFinish(dataBulkImportLogId) == 1;

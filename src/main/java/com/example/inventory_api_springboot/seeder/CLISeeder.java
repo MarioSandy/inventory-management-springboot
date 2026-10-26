@@ -31,6 +31,7 @@ public class CLISeeder implements CommandLineRunner {
         for (String arg : args) {
             if ("--seed".equals(arg)) {
                 System.out.println("🚀 Starting manual CLI seed task...");
+
                 // Delete all data
                 userSeeder.deleteAll();
                 productSeeder.deleteAll();
@@ -55,11 +56,7 @@ public class CLISeeder implements CommandLineRunner {
                 userSeeder.seedDatabase();
 
                 System.out.println("Database seeded successfully.");
-
-//                System.exit(
-//                        SpringApplication.exit(applicationContext)
-//                );
-                break; // Stop looking for other arguments
+                break;
             }
         }
     }

@@ -68,10 +68,8 @@ public enum InventoryLogTypeEnum {
         }
     };
 
-    // Abstract method that each enum variant must implement
     public abstract void validate(int quantity, int reservedQuantity);
 
-    // Helper to throw a standardized client-facing error
     protected RuntimeException invalid(String message) {
         return new org.springframework.web.server.ResponseStatusException(
                 org.springframework.http.HttpStatus.BAD_REQUEST, message

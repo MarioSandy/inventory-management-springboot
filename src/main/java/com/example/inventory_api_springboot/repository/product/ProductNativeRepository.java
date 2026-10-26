@@ -22,10 +22,6 @@ public interface ProductNativeRepository {
         int limit
     );
 
-//    List<ProductVariantPriceDto> findListIdAndPrice(
-//        Set<UUID> listProductVariantIds
-//    );
-
     List<ProductInvalidMasterDataIdDto> checkInvalidMasterDataIds(
         Set<String> listSizeId,
         Set<String> listColorId,
