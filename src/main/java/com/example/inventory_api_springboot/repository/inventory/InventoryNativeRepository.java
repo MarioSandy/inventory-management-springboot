@@ -16,5 +16,4 @@ public interface InventoryNativeRepository {
         UUID userId
     );
 
-//    void approveStockOpnameReview(UUID productVariantId, int shortage, List<InventoryLog> listInventoryLog);
 }
