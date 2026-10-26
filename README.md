@@ -230,15 +230,6 @@ The seeder clears and recreates selected user, product, and master-data records 
 
 The current seeder does not exit the application after seeding, so the Spring Boot application continues running after the seed task completes. Use the normal run command when you do not want to reseed the database.
 
-## Engineering considerations
-
-- Keep inventory and balance changes in transactions with their corresponding audit records.
-- Apply a consistent locking strategy to inventory operations that may race with orders or stock opname.
-- Treat RabbitMQ as at-least-once delivery and make consumers idempotent.
-- Monitor outbox retries, failed events, stale processing locks, and bulk-import progress.
-- Keep API authorization aligned with the CUSTOMER, WAREHOUSE_STAFF, and USER_ADMIN responsibilities.
-- Use Flyway forward migrations to evolve database schema safely.
-
 ## Testing Batch Product Creation
 
 This project includes a sample Excel dataset to help you test the batch product creation workflow.
@@ -276,4 +267,13 @@ The sample dataset contains product records that can be copied into the Excel te
 - Copy only the product records into the downloaded template's `product` sheet.
 - Do not modify the master-data sheets or their identifiers.
 - Follow the column names and workbook structure provided by the template endpoint.
+
+## Engineering considerations
+
+- Keep inventory and balance changes in transactions with their corresponding audit records.
+- Apply a consistent locking strategy to inventory operations that may race with orders or stock opname.
+- Treat RabbitMQ as at-least-once delivery and make consumers idempotent.
+- Monitor outbox retries, failed events, stale processing locks, and bulk-import progress.
+- Keep API authorization aligned with the CUSTOMER, WAREHOUSE_STAFF, and USER_ADMIN responsibilities.
+- Use Flyway forward migrations to evolve database schema safely.
 
